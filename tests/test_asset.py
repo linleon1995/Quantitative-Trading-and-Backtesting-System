@@ -32,6 +32,7 @@ def test_deposit(mock_asset, symbol, number, cost, expected_balance):
         ("ETH", None, 1.0, TypeError),  # Missing number
     ],
     ids=['deposit_negative',
+         'deposit_zero',
          'deposit_type_error'],
 )
 def test_deposit_exception(mock_asset, symbol, number, cost, excetion):

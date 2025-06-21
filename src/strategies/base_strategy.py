@@ -72,8 +72,8 @@ class TestStateMachine(StateMachine):
         | s2.to(s2, unless='buy_complete')
     )
     break_last_low = (
-        s3.to(s0, cond='sell_complete')
-        | s3.to(s3, unless='sell_complete')
+        s3.to(s4, cond='price_dropping')
+        | s3.to(s3, unless='price_dropping')
     )
     sell = (
         s4.to(s0, cond='sell_complete')

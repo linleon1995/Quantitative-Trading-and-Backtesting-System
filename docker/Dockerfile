@@ -17,13 +17,8 @@ ENV PATH="/root/.local/bin:$PATH"
 RUN uv --version
 
 # Copy project files
-<<<<<<< Updated upstream
-COPY pyproject.toml .
-
-=======
 # COPY pyproject.toml .
 COPY . .
->>>>>>> Stashed changes
 
 # Now, use uv to install your project's dependencies
 # The command for installing dependencies from a lock file is:

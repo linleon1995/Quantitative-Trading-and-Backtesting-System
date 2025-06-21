@@ -1,9 +1,43 @@
+from abc import ABC, abstractmethod
+from typing import List, Any
 from statemachine import State, StateMachine
 
 from src.data_process.data_structure import GeneralTickData
 
+# TODO: Refine Signal type, e.g. using a dataclass with fields like type: str and details: dict
+Signal = Any
+
+
+class Strategy(ABC):
+    """
+    Interface for trading strategies.
+    """
+
+    def initialize(self, config: dict) -> None:
+        """
+        Initializes the strategy with the given configuration.
+        This method is called once before the strategy starts handling data.
+        Args:
+            config: A dictionary containing configuration parameters for the strategy.
+        """
+        pass
+
+    @abstractmethod
+    def handle_data(self, product_id: str, data: Any, product_state: 'ProductState') -> List[Signal]:
+        """
+        Processes incoming market data and generates trading signals.
+        Args:
+            product_id: The identifier of the product.
+            data: The incoming market data.
+            product_state: The current state of the product.
+        Returns:
+            A list of trading signals.
+        """
+        pass
+
 
 # Keep Strategy stateless and make sure StrategyExecuter taking good care of it.
+# Legacy component
 class StrategyExecuter:
     def run(self, tic):
         self.collect(tic)

@@ -1,13 +1,14 @@
+import logging
+import random
 import time
 from datetime import datetime
 
 import requests
+import telegram.ext.filters as filters
 from telegram import Update
-from telegram.ext import CallbackContext, CommandHandler, MessageHandler, Updater, Filters
-import logging
 from telegram.error import NetworkError, TimedOut
-import time
-import random
+from telegram.ext import (CallbackContext, CommandHandler, MessageHandler,
+                          Updater)
 
 # from src.binance_api import get_binance_ticker_price
 
@@ -116,7 +117,8 @@ def main(ProfitGetter) -> None:
             # For now, I'll comment out the problematic lines and use a placeholder for the handler.
             # To make it runnable, let's assume Filters was meant to be imported.
             # from telegram.ext import Filters # Temporary import for Filters - No longer needed here
-            dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, echo))
+            dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+
 
 
             # Start the Bot

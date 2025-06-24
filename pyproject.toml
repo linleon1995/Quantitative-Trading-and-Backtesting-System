@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "arcticdb>=5.4.1",
+    "gymnasium>=1.1.1",
     "ipython>=9.2.0",
     "kafka-python>=2.2.7",
     "matplotlib>=3.10.3",

@@ -3,17 +3,20 @@ import json
 import logging
 import time
 from datetime import datetime
+from pathlib import Path
 
 import requests
 import websockets
 from kafka import KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
 
-# logging.basicConfig(level=logging.INFO)
+# Ensure log directory exists
+log_dir = Path('logs')
+log_dir.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(filename='logs/binanace_producer.log', level=logging.INFO, 
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-KAFKA_BOOTSTRAP_SERVERS = ['localhost:29092']
+KAFKA_BOOTSTRAP_SERVERS = ['kafka:9092']
 KAFKA_TOPIC = 'binance_kline'
 BINANCE_WS_URI = "wss://stream.binance.com:9443/ws"
 STREAMS_PER_WS = 100
@@ -70,6 +73,8 @@ class BinanceKafkaProducerWorker:
                         'close_price': float(kline['c']),
                         'volume': float(kline['v']),
                     }
+                
+                    # TODO: log every minute is too frequent, but not log at all is not easy to track.
                     logging.info(tick)
 
                     self.producer.send(KAFKA_TOPIC, key=symbol, value=tick)

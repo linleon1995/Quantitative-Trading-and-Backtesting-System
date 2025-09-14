@@ -33,6 +33,10 @@ class DynamicBreakoutTrader:
         self.short_low = float('inf')
         self.short_time_len = int(self.lookback * 0.5)
 
+        self.num_trade = 0
+        self.total_earn = 0.0
+        self.avg_earn = 0.0
+
     def _update_mean(self, old_mean, new_val, length):
         return (old_mean * (length - 1) + new_val) / length if old_mean else new_val
 
@@ -129,4 +133,7 @@ class DynamicBreakoutTrader:
             'entry_time': pos['entry_time'],
             'exit_time': timestamp
         })
+        self.num_trade += 1
+        self.total_earn += earn
+        self.avg_earn = self.total_earn / self.num_trade if self.num_trade else 0.0
         self.positions.remove(pos)

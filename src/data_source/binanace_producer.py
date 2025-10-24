@@ -42,47 +42,49 @@ class BinanceKafkaProducerWorker:
         self.last_timestamps = {}
 
     async def run(self):
-        async with websockets.connect(BINANCE_WS_URI) as ws:
-            subscribe_msg = {
-                "method": "SUBSCRIBE",
-                "params": self.symbols,
-                "id": 1
-            }
-            await ws.send(json.dumps(subscribe_msg))
-            logging.info(f"Subscribed: {self.symbols}")
+        while True:  # 外層 loop: 若連線中斷則重試
+            async with websockets.connect(BINANCE_WS_URI) as ws:
+                subscribe_msg = {
+                    "method": "SUBSCRIBE",
+                    "params": self.symbols,
+                    "id": 1
+                }
+                await ws.send(json.dumps(subscribe_msg))
+                logging.info(f"Subscribed: {self.symbols}")
 
-            while True:
-                try:
-                    msg = await ws.recv()
-                    data = json.loads(msg)
+                while True:  # 內層 loop: 接收資料
+                    try:
+                        msg = await ws.recv()
+                        data = json.loads(msg)
 
-                    if 'k' not in data:
-                        continue
+                        if 'k' not in data:
+                            continue
 
-                    symbol = data['s']
-                    kline = data['k']
-                    timestamp = datetime.fromtimestamp(kline['T'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                        symbol = data['s']
+                        kline = data['k']
+                        timestamp = datetime.fromtimestamp(kline['T'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                        
+                        if self.last_timestamps.get(symbol) == timestamp:
+                            continue
+                        self.last_timestamps[symbol] = timestamp
+
+                        tick = {
+                            'timestamp': timestamp,
+                            'symbol': symbol,
+                            'close_price': float(kline['c']),
+                            'volume': float(kline['v']),
+                        }
                     
-                    if self.last_timestamps.get(symbol) == timestamp:
-                        continue
-                    self.last_timestamps[symbol] = timestamp
+                        # TODO: log every minute is too frequent, but not log at all is not easy to track.
+                        logging.info(tick)
 
-                    tick = {
-                        'timestamp': timestamp,
-                        'symbol': symbol,
-                        'close_price': float(kline['c']),
-                        'volume': float(kline['v']),
-                    }
-                
-                    # TODO: log every minute is too frequent, but not log at all is not easy to track.
-                    logging.info(tick)
+                        self.producer.send(KAFKA_TOPIC, key=symbol, value=tick)
+                        logging.debug(f"Sent: {tick}")
 
-                    self.producer.send(KAFKA_TOPIC, key=symbol, value=tick)
-                    logging.debug(f"Sent: {tick}")
-
-                except Exception as e:
-                    logging.error(f"WebSocket error: {e}")
-                    await asyncio.sleep(5)
+                    except Exception as e:
+                        logging.error(f"WebSocket error: {e}")
+                        await asyncio.sleep(5)
+                        break
 
 
 class BinanceKafkaProducerManager:

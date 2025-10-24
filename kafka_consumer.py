@@ -64,10 +64,24 @@ def consume_kafka_messages():
 
             now = datetime.now()
             if (now - last_print_time).total_seconds() >= 60:
-                portfolio_earn = {symbol: strategies[symbol].avg_earn for symbol in strategies if strategies[symbol].num_trade > 0}
-                total_earn = sum(portfolio_earn.values()) / len(portfolio_earn) if portfolio_earn else 0.0
+                portfolio_earn = {symbol: round(strategies[symbol].avg_earn, 4) for symbol in strategies if strategies[symbol].num_trade > 0}
+                max_earn = max(portfolio_earn.values()) if portfolio_earn else 0.0
+                min_earn = min(portfolio_earn.values()) if portfolio_earn else 0.0
+                mean_earn = sum(portfolio_earn.values()) / len(portfolio_earn) if portfolio_earn else 0.0
+                holding_coins = sum(1 for s in strategies.values() if getattr(s, "position", 0) != 0)
+                total_earn = mean_earn * len(portfolio_earn)
+                portfolio_earn = sorted(portfolio_earn.items(), key=lambda x: x[1], reverse=True)
+                portfolio_earn = dict(portfolio_earn)
+                logging.info("-" * 60)
+                logging.info(f"Time: {now}")
+                logging.info(f"Holding Coins: {holding_coins}")
+                logging.info(f"Max Earn: {max_earn*100:.2f}%, Min Earn: {min_earn*100:.2f}%")
+                logging.info(f"Simple Average Return: {mean_earn*100:.2f}%")
+                logging.info(f"Weighted Average Return: {mean_earn*100:.2f}%")
                 logging.info(f"Avg Earn per Symbol: {portfolio_earn}")
-                logging.info(f"{now} - Total Earn: {total_earn}")
+                logging.info(f"Number of Traded Symbols: {len(portfolio_earn)}")
+                logging.info(f"Total Earn: {total_earn*100:.2f}%")
+
                 last_print_time = now
         except KeyError as e:
             logging.warning(f"Incomplete data in message: {raw_data}")

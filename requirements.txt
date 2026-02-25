@@ -1,6 +1,6 @@
-telegram
 numpy
 python-telegram-bot
+kafka-python
 websockets
 arcticdb
 pandas
@@ -12,3 +12,5 @@ scipy
 tqdm
 ipython
 python-statemachine
+cryptography
+python-dotenv

@@ -78,7 +78,13 @@ def consume_kafka_messages():
                 logging.info(f"Max Earn: {max_earn*100:.2f}%, Min Earn: {min_earn*100:.2f}%")
                 logging.info(f"Simple Average Return: {mean_earn*100:.2f}%")
                 logging.info(f"Weighted Average Return: {mean_earn*100:.2f}%")
-                logging.info(f"Avg Earn per Symbol: {portfolio_earn}")
+                # Show only top 5 and worst 5 symbols by average earn
+                top_5 = list(portfolio_earn.items())[:5]
+                worst_5 = list(portfolio_earn.items())[-5:]
+                top_5_pct = {k: f"{v*100:.2f}%" for k, v in top_5}
+                worst_5_pct = {k: f"{v*100:.2f}%" for k, v in worst_5}
+                logging.info(f"Top 5 Avg Earn per Symbol: {top_5_pct}")
+                logging.info(f"Worst 5 Avg Earn per Symbol: {worst_5_pct}")
                 logging.info(f"Number of Traded Symbols: {len(portfolio_earn)}")
                 logging.info(f"Total Earn: {total_earn*100:.2f}%")
 

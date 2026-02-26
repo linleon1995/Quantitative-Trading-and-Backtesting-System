@@ -56,13 +56,64 @@ class LiveTradingStrategy(DynamicBreakoutTrader):
         super().__init__(symbol=symbol, **kwargs)
         self.trader = trader
         self.active_orders: Dict[str, Dict] = {}  # Track active exchange orders
+        self.is_valid_symbol = True  # Track if symbol is tradeable
         
         # Set max_positions after initialization
         self.max_positions = max_positions
+    
+    def calculate_order_quantity(self, price: float, target_value_usdt: float = 100.0) -> Optional[float]:
+        """Calculate order quantity based on price and target USDT value.
+        
+        Args:
+            price: Current price of the asset
+            target_value_usdt: Target trade value in USDT (default 100)
+            
+        Returns:
+            Rounded quantity that meets exchange precision requirements, or None if invalid
+        """
+        if price <= 0:
+            return None
+            
+        # Calculate raw quantity
+        raw_quantity = target_value_usdt / price
+        
+        # Determine appropriate precision based on price
+        # Higher price = fewer decimals needed
+        if price >= 1000:  # e.g., BTC
+            precision = 3  # 0.001
+        elif price >= 10:  # e.g., ETH, BNB
+            precision = 2  # 0.01
+        elif price >= 1:  # e.g., many altcoins
+            precision = 1  # 0.1
+        elif price >= 0.1:
+            precision = 0  # 1
+        elif price >= 0.01:
+            precision = 0  # Round to integer for very low price coins
+            raw_quantity = round(raw_quantity)
+        else:  # Very low price (< 0.01)
+            precision = 0
+            raw_quantity = round(raw_quantity)
+        
+        # Round to appropriate precision
+        if precision > 0:
+            quantity = round(raw_quantity, precision)
+        else:
+            quantity = int(raw_quantity)
+        
+        # Ensure minimum quantity
+        if quantity <= 0:
+            quantity = 1 if precision == 0 else 10 ** (-precision)
+            
+        return quantity
         
     def _execute_buy(self, timestamp, price, position_size):
         """Execute real buy order on Binance testnet."""
         try:
+            # Validate symbol before trading
+            if not self.is_valid_symbol:
+                logging.warning(f"[{self.symbol}] Skipping trade - invalid or unsupported symbol")
+                return None
+            
             logging.info(f"[{self.symbol}] Attempting to BUY {position_size} at market price ~{price}")
             
             # For futures market order
@@ -78,6 +129,11 @@ class LiveTradingStrategy(DynamicBreakoutTrader):
                 order_id = order_data.get('orderId')
                 executed_qty = float(order_data.get('executedQty', position_size))
                 executed_price = float(order_data.get('avgPrice', price))
+                
+                # Validate executed price
+                if executed_price <= 0:
+                    logging.error(f"[{self.symbol}] Invalid executed price: {executed_price}")
+                    return None
                 
                 # Calculate trade value in USDT
                 trade_value = executed_qty * executed_price
@@ -108,7 +164,15 @@ class LiveTradingStrategy(DynamicBreakoutTrader):
                 
                 return position
             else:
-                logging.error(f"[{self.symbol}] BUY ORDER FAILED: {result.get('message')}")
+                error_msg = result.get('message', 'Unknown error')
+                error_code = result.get('code', 'N/A')
+                logging.error(f"[{self.symbol}] BUY ORDER FAILED: {error_msg} (code: {error_code})")
+                
+                # Mark symbol as invalid if it's a symbol-related error
+                if error_code in [-1121, -1111]:  # Invalid symbol or precision error
+                    self.is_valid_symbol = False
+                    logging.warning(f"[{self.symbol}] Marked as invalid/unsupported - will skip future trades")
+                
                 return None
                 
         except Exception as e:
@@ -219,8 +283,14 @@ class LiveTradingStrategy(DynamicBreakoutTrader):
         if (price >= dynamic_x and volume > self.mean_vol and 
             len(self.positions) < self.max_positions):
 
-            # Minimum 100 USDT notional value required
-            position_size = 0.002  # 0.002 BTC (~200 USDT at BTC=100k)
+            # Calculate appropriate order size based on price
+            # Target 100 USDT notional value
+            position_size = self.calculate_order_quantity(price, target_value_usdt=100.0)
+            
+            if position_size is None:
+                logging.warning(f"[{self.symbol}] Could not calculate valid order quantity for price {price}")
+                return
+            
             self._execute_buy(timestamp, price, position_size)
 
         # Short-term high/low tracking
@@ -233,6 +303,12 @@ class LiveTradingStrategy(DynamicBreakoutTrader):
         hold_minutes = 60
 
         for pos in self.positions[:]:
+            # Validate position entry price
+            if pos.get('entry', 0) <= 0:
+                logging.error(f"[{self.symbol}] Invalid position entry price: {pos.get('entry')}. Removing position.")
+                self.positions.remove(pos)
+                continue
+            
             holding_time = (timestamp - pos['entry_time']).total_seconds() / 60
             unrealized_gain = (price - pos['entry']) / pos['entry']
 

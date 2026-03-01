@@ -87,8 +87,8 @@ class DynamicBreakoutTrader:
         self.mean_adx = None
         self.mean_vol = None
 
-        self.high = float('-inf')
-        self.low = float('inf')
+        self.high: Optional[float] = None
+        self.low: Optional[float] = None
         self.short_high = float('-inf')
         self.short_low = float('inf')
         self.short_time_len = int(self.lookback * 0.5)
@@ -138,11 +138,9 @@ class DynamicBreakoutTrader:
 
         self.prices.append(price)
 
-        # Efficiently track rolling high/low
-        if self.high is None:
-            self.high = max(self.prices)
-        if self.low is None:
-            self.low = min(self.prices)
+        # Always update rolling high/low from the current lookback window
+        self.high = max(self.prices)
+        self.low = min(self.prices)
 
         self._update_atr(price)
         self._update_adx(price)
@@ -151,9 +149,15 @@ class DynamicBreakoutTrader:
         if len(self.prices) < self.lookback:
             return
 
+        # Wait until all indicators are fully warmed up before evaluating entry.
+        # Without this guard, mean_atr=None causes dynamic_x to fall back to
+        # self.high which was previously float('-inf'), firing on every tick.
+        if self.mean_atr is None or self.mean_vol is None:
+            return
+
         # Calculate dynamic breakout entry thresholds
-        dynamic_x = self.high - self.pr_x * self.mean_atr if self.mean_atr else self.high
-        dynamic_y = self.low + self.pr_y * self.mean_atr if self.mean_atr else self.low
+        dynamic_x = self.high - self.pr_x * self.mean_atr
+        dynamic_y = self.low + self.pr_y * self.mean_atr
 
         # Entry condition - emit BUY signal
         if (price >= dynamic_x and volume > self.mean_vol and 

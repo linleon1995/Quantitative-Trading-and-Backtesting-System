@@ -48,6 +48,7 @@ class TradingConfig(BaseModel):
     trading_fee_rate: float = Field(default=0.0004, ge=0.0, le=0.1, description="Trading fee rate (decimal)")
     max_loss_rate: float = Field(default=0.2, gt=0.0, le=1.0, description="Stop when total return < -max_loss_rate (fraction)")
     use_testnet: bool = Field(default=True, description="Use testnet environment")
+    reset_on_start: bool = Field(default=False, description="Close all positions and re-baseline portfolio on startup (online backtest mode)")
 
     @field_validator('max_loss_rate')
     @classmethod
@@ -117,6 +118,7 @@ Trading:
   - Trading Fee: {self.trading.trading_fee_rate*100:.3f}%
   - Max Loss Rate: -{self.trading.max_loss_rate*100:.1f}% total return
   - Environment: {'TESTNET' if self.trading.use_testnet else 'PRODUCTION'}
+  - Reset on Start: {'YES (online backtest mode)' if self.trading.reset_on_start else 'No'}
 
 Kafka:
   - Bootstrap Servers: {self.kafka.bootstrap_servers}
@@ -148,12 +150,12 @@ def load_config_from_env() -> LiveTradingConfig:
             hold_minutes=int(os.getenv('STRATEGY_HOLD_MINUTES', '60')),
         ),
         trading=TradingConfig(
-            initial_capital=float(os.getenv('INITIAL_CAPITAL', '100000')),
             max_positions=int(os.getenv('MAX_POSITIONS', '1')),
             trade_value_usdt=float(os.getenv('TRADE_VALUE_USDT', '100')),
             trading_fee_rate=float(os.getenv('TRADING_FEE_RATE', '0.0004')),
-            max_drawdown=float(os.getenv('MAX_DRAWDOWN', '0.2')),
+            max_loss_rate=float(os.getenv('MAX_LOSS_RATE', os.getenv('MAX_DRAWDOWN', '0.2'))),
             use_testnet=os.getenv('USE_TESTNET', 'True').lower() == 'true',
+            reset_on_start=os.getenv('RESET_ON_START', 'False').lower() == 'true',
         ),
         kafka=KafkaConfig(
             bootstrap_servers=os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:29092').split(','),

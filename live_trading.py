@@ -139,6 +139,23 @@ def run_live_trading():
     # Strategy instances per symbol
     strategies: Dict[str, DynamicBreakoutTrader] = {}
     
+    # Online backtest reset: close all positions and re-baseline on startup
+    if config.trading.reset_on_start:
+        logger.info("=" * 80)
+        logger.info("🔄 ONLINE BACKTEST MODE: Resetting positions and portfolio...")
+        reset_result = orchestrator.reset_for_online_backtest(strategies)
+        logger.info(
+            f"Reset complete — closed {reset_result['positions_closed']} position(s), "
+            f"new baseline: ${reset_result['new_baseline']:,.2f}"
+        )
+        if reset_result['positions_failed']:
+            logger.warning(f"Failed to close: {reset_result['positions_failed']}")
+        telegram_bot.send_msg(
+            f"🔄 Online Backtest Reset\n"
+            f"Closed {reset_result['positions_closed']} position(s)\n"
+            f"New Baseline: ${reset_result['new_baseline']:,.2f}"
+        )
+
     logger.info("=" * 80)
     logger.info("🚀 Live Trading Started!")
     logger.info("=" * 80)

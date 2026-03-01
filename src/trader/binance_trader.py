@@ -225,6 +225,48 @@ class BinanceTrader(BaseTrader):
             **extra,
         )
 
+    def close_all_positions(self) -> Dict:
+        """
+        Close all open futures positions with market reduce-only orders.
+
+        Intended for online-backtest resets: call this before starting a new
+        run to ensure a clean slate with no inherited positions.
+
+        Returns:
+            {
+                'closed': [{'symbol': ..., 'side': ..., 'qty': ..., 'result': ...}],
+                'failed': [{'symbol': ..., 'error': ...}],
+            }
+        """
+        positions = self.get_positions(account_type='futures')
+        if isinstance(positions, dict) and positions.get('success') is False:
+            return {'closed': [], 'failed': [{'symbol': 'ALL', 'error': positions.get('message')}]}
+
+        closed = []
+        failed = []
+        for symbol, info in positions.items():
+            position_amt = info.get('positionAmt', 0)
+            if position_amt == 0:
+                continue
+
+            # Long position (positive amt) → close with SELL
+            # Short position (negative amt) → close with BUY
+            close_side = 'SELL' if position_amt > 0 else 'BUY'
+            qty = abs(position_amt)
+
+            result = self.close_futures_position(
+                symbol=symbol,
+                side=close_side,
+                quantity=qty,
+                order_type='MARKET',
+            )
+            if result.get('success'):
+                closed.append({'symbol': symbol, 'side': close_side, 'qty': qty, 'result': result['data']})
+            else:
+                failed.append({'symbol': symbol, 'error': result.get('message'), 'code': result.get('code')})
+
+        return {'closed': closed, 'failed': failed}
+
     # Placeholder methods for web3/Metamask
     def connect_metamask(self):
         """

@@ -191,6 +191,109 @@ class LiveTradingOrchestrator:
             return True
         return False
     
+    def reset_for_online_backtest(self, strategies: Dict) -> Dict:
+        """
+        Reset the system for a fresh online-backtest run.
+
+        Performs three steps in order:
+          1. Close all open futures positions on the exchange.
+          2. Fetch the post-close balance and reset PortfolioTracker with it
+             as the new baseline (initial_capital / peak_capital / current_capital).
+          3. Clear all internal strategy state (positions, trade records, stats).
+
+        This must be called *before* starting a new online-backtest run so every
+        run begins from a known, clean state.
+
+        Args:
+            strategies: dict mapping symbol -> DynamicBreakoutTrader (the current
+                        strategy instances used in the run, e.g., from live_trading.py)
+
+        Returns:
+            {
+                'positions_closed': int,
+                'positions_failed': list,
+                'new_baseline': float,    # USDT balance after closing
+            }
+        """
+        self.logger.info("=" * 60)
+        self.logger.info("🔄 ONLINE BACKTEST RESET STARTED")
+        self.logger.info("=" * 60)
+
+        # --- Step 1: Close all open exchange positions ---
+        self.logger.info("Step 1: Closing all open exchange positions...")
+        close_result = self.trader.close_all_positions()
+        n_closed = len(close_result['closed'])
+        n_failed = len(close_result['failed'])
+
+        for item in close_result['closed']:
+            self.logger.info(
+                f"  ✅ Closed {item['symbol']} {item['side']} qty={item['qty']}"
+            )
+        for item in close_result['failed']:
+            self.logger.warning(
+                f"  ⚠️  Failed to close {item['symbol']}: {item.get('error')} (code={item.get('code')})"
+            )
+        self.logger.info(f"  Closed {n_closed} position(s), {n_failed} failure(s)")
+
+        # --- Step 2: Re-baseline portfolio from actual post-close balance ---
+        self.logger.info("Step 2: Re-fetching balance to establish new baseline...")
+        new_balance = self._fetch_usdt_balance()
+        if new_balance is None:
+            self.logger.error("Could not fetch balance after closing positions; baseline unchanged")
+            new_balance = self.portfolio.current_capital
+
+        self.portfolio.initial_capital = new_balance
+        self.portfolio.peak_capital = new_balance
+        self.portfolio.current_capital = new_balance
+        self.portfolio.total_trades = 0
+        self.portfolio.winning_trades = 0
+        self.portfolio.losing_trades = 0
+        self.portfolio.total_profit = 0.0
+        self.portfolio.total_fees = 0.0
+        self.portfolio.position_count = 0
+        self.portfolio.active_positions.clear()
+        self.logger.info(f"  New baseline capital: ${new_balance:,.2f}")
+
+        # --- Step 3: Reset all strategy instances ---
+        self.logger.info(f"Step 3: Resetting {len(strategies)} strategy instance(s)...")
+        for symbol, strategy in strategies.items():
+            strategy.positions.clear()
+            strategy.trade_records.clear()
+            strategy.num_trade = 0
+            strategy.total_earn = 0.0
+            strategy.avg_earn = 0.0
+            # Reset price/indicator deques so warm-up runs fresh
+            strategy.prices.clear()
+            strategy.volumes.clear()
+            strategy.atr_values.clear()
+            strategy.adx_values.clear()
+            strategy.mean_atr = None
+            strategy.mean_adx = None
+            strategy.mean_vol = None
+            strategy.high = None
+            strategy.low = None
+            strategy.short_high = float('-inf')
+            strategy.short_low = float('inf')
+            self.logger.info(f"  ✅ Reset strategy: {symbol}")
+
+        # Re-enable trading (in case it was stopped by loss limit)
+        self.is_trading_active = True
+        self.active_orders.clear()
+        self.symbol_validity.clear()
+        self.last_portfolio_update = datetime.now()
+        self.last_telegram_update = datetime.now()
+
+        self.logger.info("=" * 60)
+        self.logger.info("✅ ONLINE BACKTEST RESET COMPLETE")
+        self.logger.info(f"   Closed: {n_closed} positions | New capital: ${new_balance:,.2f}")
+        self.logger.info("=" * 60)
+
+        return {
+            'positions_closed': n_closed,
+            'positions_failed': close_result['failed'],
+            'new_baseline': new_balance,
+        }
+
     def sync_portfolio_from_exchange(self):
         """Sync current capital from exchange (called periodically)."""
         usdt_balance = self._fetch_usdt_balance()

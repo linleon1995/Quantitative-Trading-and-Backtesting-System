@@ -171,6 +171,113 @@ def test_strategy_no_premature_signals():
         return False
 
 
+def test_online_backtest_reset():
+    """Test reset_for_online_backtest: closes positions, resets portfolio and strategies."""
+    print("\n" + "=" * 60)
+    print("Testing Online Backtest Reset")
+    print("=" * 60)
+
+    try:
+        from src.config.trading_config import load_config_from_env
+        from src.orchestrator.live_trading_orchestrator import LiveTradingOrchestrator
+        from src.strategies.dynamic_breakout_atx import DynamicBreakoutTrader
+
+        # Mock trader: pretend there are 2 open positions to close
+        class MockTraderWithPositions:
+            def get_balance(self, account_type='futures'):
+                return {'USDT': 4800.0}
+
+            def get_positions(self, account_type='futures'):
+                return {
+                    'BTCUSDT': {'positionAmt': 0.002, 'entryPrice': 50000.0,
+                                'unRealizedProfit': -5.0, 'marginType': 'cross',
+                                'leverage': 1.0, 'positionSide': 'BOTH'},
+                    'ETHUSDT': {'positionAmt': -0.05, 'entryPrice': 3200.0,
+                                'unRealizedProfit': 10.0, 'marginType': 'cross',
+                                'leverage': 1.0, 'positionSide': 'BOTH'},
+                }
+
+            def close_futures_position(self, symbol, side, quantity, **kwargs):
+                return {'success': True, 'data': {'orderId': 99, 'executedQty': quantity, 'avgPrice': 0}}
+
+            def close_all_positions(self):
+                positions = self.get_positions(account_type='futures')
+                closed = []
+                for sym, info in positions.items():
+                    amt = info['positionAmt']
+                    side = 'SELL' if amt > 0 else 'BUY'
+                    closed.append({'symbol': sym, 'side': side, 'qty': abs(amt), 'result': {}})
+                return {'closed': closed, 'failed': []}
+
+            def open_futures_position(self, **kwargs):
+                return {'success': True, 'data': {}}
+
+        config = load_config_from_env()
+        logger = logging.getLogger('test_reset')
+        logger.setLevel(logging.INFO)
+
+        orchestrator = LiveTradingOrchestrator(
+            trader=MockTraderWithPositions(),
+            config=config,
+            logger=logger
+        )
+        print(f"✅ Orchestrator initial capital: ${orchestrator.portfolio.initial_capital:,.2f}")
+
+        # Simulate some trading history on the portfolio
+        orchestrator.portfolio.update_capital(5200.0)
+        orchestrator.portfolio.record_trade(profit=150, trade_value=1000)
+        orchestrator.portfolio.record_trade(profit=-50, trade_value=500)
+        orchestrator.portfolio.position_count = 2
+        orchestrator.is_trading_active = False  # simulate stopped by loss limit
+        print(f"  Pre-reset: capital={orchestrator.portfolio.current_capital}, "
+              f"trades={orchestrator.portfolio.total_trades}, active={orchestrator.is_trading_active}")
+
+        # Create two strategy instances with state
+        strategies = {}
+        for symbol in ['BTCUSDT', 'ETHUSDT']:
+            s = DynamicBreakoutTrader(symbol=symbol)
+            s.positions.append({'entry': 50000, 'size': 0.002, 'entry_time': None})
+            s.num_trade = 3
+            s.total_earn = 0.05
+            strategies[symbol] = s
+
+        # --- Execute reset ---
+        result = orchestrator.reset_for_online_backtest(strategies)
+        print(f"✅ Reset result: {result}")
+
+        # Assertions
+        assert result['positions_closed'] == 2, f"Expected 2 closed, got {result['positions_closed']}"
+        assert result['positions_failed'] == [], f"Expected no failures: {result['positions_failed']}"
+        assert result['new_baseline'] == 4800.0, f"Expected new baseline $4800, got {result['new_baseline']}"
+
+        # Portfolio should be fully reset
+        assert orchestrator.portfolio.initial_capital == 4800.0
+        assert orchestrator.portfolio.current_capital == 4800.0
+        assert orchestrator.portfolio.peak_capital == 4800.0
+        assert orchestrator.portfolio.total_trades == 0
+        assert orchestrator.portfolio.position_count == 0
+        assert orchestrator.is_trading_active is True
+        print("✅ Portfolio fully reset to new baseline $4,800.00")
+
+        # Strategies should be wiped
+        for symbol, s in strategies.items():
+            assert len(s.positions) == 0
+            assert s.num_trade == 0
+            assert s.mean_atr is None
+            assert s.high is None
+        print("✅ All strategy instances reset (positions cleared, indicators wiped)")
+
+        return True
+    except AssertionError as e:
+        print(f"❌ Assertion failed: {e}")
+        import traceback; traceback.print_exc()
+        return False
+    except Exception as e:
+        print(f"❌ Test error: {e}")
+        import traceback; traceback.print_exc()
+        return False
+
+
 def test_portfolio_tracker():
     """Test portfolio tracking."""
     print("\n" + "=" * 60)
@@ -294,6 +401,7 @@ def run_all_tests():
         'Configuration Loading': test_config_loading(),
         'Strategy Signals': test_strategy_signals(),
         'No Premature Signals': test_strategy_no_premature_signals(),
+        'Online Backtest Reset': test_online_backtest_reset(),
         'Portfolio Tracker': test_portfolio_tracker(),
         'Orchestrator Init': test_orchestrator_initialization(),
     }

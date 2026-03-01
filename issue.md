@@ -16,6 +16,9 @@
 - [ ] 能夠紀錄交易紀錄，並且能夠分析交易紀錄。 (紀錄API所有能夠記錄的資料)
 - [ ] log 分天保存  現有log過大
 - [ ] 移除非必要檔案 以及 合併重複功能檔案 簡化現有模組
+- [ ] 區分offline backtest 與 online backtest，以及production三種環境，並且能夠在三種環境中切換
+- [x] online backtest由於UI限制，要求每次重新開始時關閉所有position，並reset asset或是account
+
 ###  策略
 - ~~優先分析現有交易策略~~
     - ~~現在為甚麼不需要等14分鐘才能交易? 是因為有錯誤的初始假設?~~ **(resolved: c482fb1)**

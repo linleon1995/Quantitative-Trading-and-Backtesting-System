@@ -126,6 +126,19 @@ class BinanceTrader(BaseTrader):
         """Return the set of USDT-margined perpetual symbols currently TRADING on futures."""
         return self.api.get_futures_symbols()
 
+    def get_futures_klines(
+        self,
+        symbol: str,
+        interval: str = '1m',
+        limit: int = 100,
+    ):
+        """Fetch recent futures klines for warmup purposes.
+
+        Returns raw kline rows [[open_time, open, high, low, close, volume, ...], ...]
+        or None on failure.
+        """
+        return self.api.get_futures_klines(symbol=symbol, interval=interval, limit=limit)
+
     def get_balance(self, account_type: str = 'spot') -> Dict:
         """Return balances for the requested Binance account type."""
         account_type = account_type.lower()

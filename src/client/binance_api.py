@@ -82,7 +82,32 @@ class BinanceAPI:
             for s in data.get('symbols', [])
             if s.get('status') == 'TRADING' and s.get('contractType') == 'PERPETUAL'
         }
-        
+
+    def get_futures_klines(
+        self,
+        symbol: str = 'BTCUSDT',
+        interval: str = '1m',
+        limit: int = 100,
+        startTime=None,
+        endTime=None,
+    ):
+        """Fetch USDT-margined futures klines from /fapi/v1/klines.
+
+        Returns a list of kline rows identical in format to spot klines:
+        [open_time, open, high, low, close, volume, close_time, ...]
+        Returns None on failure.
+        """
+        params = {'symbol': symbol, 'interval': interval, 'limit': limit}
+        if startTime is not None:
+            params['startTime'] = startTime
+        if endTime is not None:
+            params['endTime'] = endTime
+        try:
+            return self._public_request('GET', '/fapi/v1/klines', params=params, futures=True)
+        except Exception as e:
+            print(f"get_futures_klines error for {symbol}: {e}")
+            return None
+
     # TODO: take care the exceptiion of return data more than 1000 counts.
     def get_klines(self, symbol='BTCUSDT', interval='1m', startTime=None, endTime=None, timeZone='8', limit=1440):
         url = f'{self.base_url}/api/v3/klines'

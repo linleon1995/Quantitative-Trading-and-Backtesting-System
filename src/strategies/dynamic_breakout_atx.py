@@ -98,6 +98,42 @@ class DynamicBreakoutTrader:
         self.total_earn = 0.0
         self.avg_earn = 0.0
 
+    def warmup_with_history(self, bars: list) -> int:
+        """Pre-warm all indicators using historical bars WITHOUT emitting signals.
+
+        Call this before attaching ``on_signal`` (or while ``on_signal`` is None)
+        so that the first live tick fires into a fully-initialised strategy rather
+        than into one where ``self.high ≈ current_price`` and
+        ``dynamic_x ≈ current_price``.
+
+        Args:
+            bars: List of kline rows as returned by Binance klines API:
+                  [open_time, open, high, low, close, volume, close_time, ...]
+                  close is index 4, volume is index 5, close_time is index 6 (ms).
+
+        Returns:
+            Number of bars processed.
+        """
+        from datetime import datetime
+
+        saved_callback = self.on_signal
+        self.on_signal = None  # Suppress all signals during warmup
+        try:
+            for row in bars:
+                try:
+                    close_time_ms = int(row[6])
+                    ts = datetime.utcfromtimestamp(close_time_ms / 1000)
+                    tick = {
+                        'close_price': float(row[4]),
+                        'volume': float(row[5]),
+                    }
+                    self.on_tick(ts, tick)
+                except Exception:
+                    pass  # Skip malformed rows; warmup is best-effort
+        finally:
+            self.on_signal = saved_callback  # Always restore, even on error
+        return len(bars)
+
     def _update_mean(self, old_mean, new_val, length):
         return (old_mean * (length - 1) + new_val) / length if old_mean else new_val
 

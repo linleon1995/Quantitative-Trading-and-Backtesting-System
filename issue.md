@@ -64,13 +64,13 @@
     - 根因：Producer 訂閱 Spot WebSocket (`stream.binance.com`) + Spot `exchangeInfo`，Consumer 送單到 Futures，symbol 不一致
     - 修正：Producer 改訂 Futures WebSocket (`fstream.binance.com`) + Futures `exchangeInfo`，只發送 `status=TRADING` + `contractType=PERPETUAL` 的 symbol
 
+- B-5 [x] ~~初始交易參數計算錯誤：`dynamic_x` 需要時間累積，啟動時應撈歷史資料預熱；目前初始 `dynamic_x = 最新一筆收盤價`，等於必定觸發，導致倉位過多~~ **(fixed)**
+    - 根因：新 symbol 首次出現時，strategy 從零初始化，`self.prices` 僅有 1 筆，rolling high ≈ 當前價，`dynamic_x ≈ current_price` → 立即觸發 BUY
+    - 修正：新增 `DynamicBreakoutTrader.warmup_with_history(bars)` — 以歷史 klines 預熱指標，期間不發 signal；`live_trading.py` 建立 strategy 後立即呼叫，拉取 `(lookback + atr_period) × 3` 根歷史 K 線完成預熱，再掛上 `on_signal` handler
+    - 測試：`test_strategy_warmup_with_history()` 驗證預熱期間 0 signal，預熱後指標就緒且 `dynamic_x < rolling_high`
+
 ### 未修復
 - B-4 [ ] 槓桿錯誤，現在是 20 倍，不符合 config 的 1 倍設定
-
-- B-5 [ ] 初始交易參數計算錯誤：`dynamic_x` 需要時間累積，啟動時應撈歷史資料預熱；目前初始 `dynamic_x = 最新一筆收盤價`，等於必定觸發，導致倉位過多
-    ```
-    Reason: Breakout: price 0.70 >= dynamic_x 0.70, volume 17 > mean 15
-    ```
 
 - B-6 [ ] 部分交易訊號不合理：
     - `-1022` Signature not valid（`币安人生USDT` 等含特殊字元的 symbol）

@@ -186,14 +186,14 @@ def run_live_trading():
                 # Initialize strategy for new symbols
                 if symbol not in strategies:
                     logger.info(f"Initializing strategy for {symbol}")
-                    
+
                     # Create signal handler that binds orchestrator
                     def make_signal_handler(orch, strat):
                         def handler(signal: TradingSignal):
                             orch.handle_signal(signal, strat)
                         return handler
-                    
-                    # Create strategy instance
+
+                    # Create strategy instance (on_signal=None during warmup)
                     strategy = DynamicBreakoutTrader(
                         symbol=symbol,
                         lookback=config.strategy.lookback,
@@ -206,10 +206,42 @@ def run_live_trading():
                         drawback=config.strategy.drawback,
                         hold_minutes=config.strategy.hold_minutes,
                         max_positions=config.trading.max_positions,
-                        on_signal=None  # Will be set below
+                        on_signal=None,
                     )
-                    
-                    # Set the signal handler
+
+                    # --- B-5 fix: pre-warm indicators with historical klines ---
+                    # Fetch enough bars so that self.high is a real rolling high
+                    # (not just 1 price) and mean_atr / mean_vol are fully computed.
+                    # Need at least lookback + atr_period bars; fetch 3× that for safety.
+                    warmup_bars_needed = (
+                        config.strategy.lookback + config.strategy.atr_period
+                    ) * 3
+                    try:
+                        hist = trader.get_futures_klines(
+                            symbol=symbol,
+                            interval='1m',
+                            limit=warmup_bars_needed,
+                        )
+                        if hist:
+                            n = strategy.warmup_with_history(hist)
+                            warmed = strategy.mean_atr is not None and strategy.mean_vol is not None
+                            logger.info(
+                                f"[{symbol}] Warmup complete: {n} bars processed, "
+                                f"indicators ready={warmed}, "
+                                f"high={strategy.high}, mean_atr={strategy.mean_atr}"
+                            )
+                        else:
+                            logger.warning(
+                                f"[{symbol}] Could not fetch warmup klines; "
+                                "strategy will warm up from live data (first signals may be delayed)"
+                            )
+                    except Exception as warmup_err:
+                        logger.warning(
+                            f"[{symbol}] Warmup fetch failed ({warmup_err}); "
+                            "continuing without pre-warmup"
+                        )
+
+                    # Attach live signal handler AFTER warmup so no premature signals
                     strategy.on_signal = make_signal_handler(orchestrator, strategy)
                     strategies[symbol] = strategy
                 

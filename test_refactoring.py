@@ -171,6 +171,90 @@ def test_strategy_no_premature_signals():
         return False
 
 
+def test_strategy_warmup_with_history():
+    """Test that warmup_with_history pre-warms indicators without emitting any signals.
+
+    Regression test for B-5: at startup dynamic_x == latest price because
+    the rolling high is built from a single live tick, causing an immediate BUY.
+    Fix: call warmup_with_history() with historical klines before attaching
+    on_signal, so the rolling window and indicators are properly initialised.
+    """
+    print("\n" + "=" * 60)
+    print("Testing warmup_with_history (B-5 fix)")
+    print("=" * 60)
+
+    try:
+        import random
+        import datetime
+        from src.strategies.dynamic_breakout_atx import DynamicBreakoutTrader
+
+        random.seed(0)
+        LOOKBACK = 14
+        ATR_PERIOD = 14
+        strategy = DynamicBreakoutTrader(symbol='BTCTEST', lookback=LOOKBACK, atr_period=ATR_PERIOD)
+
+        # Build fake historical kline rows: [open_time, o, h, l, close, volume, close_time, ...]
+        base = 100.0
+        bars = []
+        ts_ms = int(datetime.datetime(2026, 3, 4, 0, 0, 0).timestamp() * 1000)
+        for i in range(50):
+            price = base + i * 0.1 + random.uniform(-0.3, 0.3)
+            vol = 1000 + random.randint(-200, 200)
+            row = [ts_ms, str(price), str(price + 0.1), str(price - 0.1), str(price), str(vol), ts_ms + 59999]
+            bars.append(row)
+            ts_ms += 60000
+
+        # Attach signal handler BEFORE warmup to prove signals are suppressed
+        signals_during_warmup = []
+        strategy.on_signal = lambda s: signals_during_warmup.append(s)
+
+        n = strategy.warmup_with_history(bars)
+
+        assert n == 50, f"Expected 50 bars processed, got {n}"
+        assert len(signals_during_warmup) == 0, (
+            f"FAIL: {len(signals_during_warmup)} signal(s) emitted during warmup"
+        )
+        print(f"✅ No signals during warmup ({n} bars, mean_atr={strategy.mean_atr:.4f}")
+
+        # Indicators must be ready (full lookback + atr_period worth of data)
+        assert strategy.mean_atr is not None, "mean_atr still None after 50-bar warmup"
+        assert strategy.mean_vol is not None, "mean_vol still None after 50-bar warmup"
+        print(f"✅ Indicators ready: high={strategy.high:.4f}, mean_atr={strategy.mean_atr:.4f}")
+
+        # After warmup the rolling high is a real window high, NOT the current price.
+        # dynamic_x = high - pr_x * mean_atr  which should be < high (some margin away).
+        dynamic_x = strategy.high - 0.8 * strategy.mean_atr
+        assert dynamic_x < strategy.high, (
+            f"dynamic_x ({dynamic_x:.4f}) should be below rolling high ({strategy.high:.4f})"
+        )
+        print(f"✅ dynamic_x ({dynamic_x:.4f}) is below rolling high ({strategy.high:.4f})")
+
+        # A non-breakout tick (price well below high) must NOT fire a signal
+        post_warmup_signals = []
+        strategy.on_signal = lambda s: post_warmup_signals.append(s)
+        low_price = strategy.high * 0.95  # 5% below rolling high
+        strategy.on_tick(
+            datetime.datetime(2026, 3, 4, 1, 0, 0),
+            {'close_price': low_price, 'volume': 800},
+        )
+        assert len(post_warmup_signals) == 0, (
+            f"Unexpected signal on non-breakout tick: {post_warmup_signals[0].reason}"
+        )
+        print("✅ No signal on non-breakout tick after warmup")
+
+        return True
+    except AssertionError as e:
+        print(f"❌ Warmup test FAILED: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    except Exception as e:
+        print(f"❌ Test error: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def test_online_backtest_reset():
     """Test reset_for_online_backtest: closes positions, resets portfolio and strategies."""
     print("\n" + "=" * 60)
@@ -401,6 +485,7 @@ def run_all_tests():
         'Configuration Loading': test_config_loading(),
         'Strategy Signals': test_strategy_signals(),
         'No Premature Signals': test_strategy_no_premature_signals(),
+        'Warmup With History (B-5)': test_strategy_warmup_with_history(),
         'Online Backtest Reset': test_online_backtest_reset(),
         'Portfolio Tracker': test_portfolio_tracker(),
         'Orchestrator Init': test_orchestrator_initialization(),

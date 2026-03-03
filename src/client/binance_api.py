@@ -440,6 +440,19 @@ class BinanceAPI:
         balances = self._signed_request('GET', '/fapi/v2/balance', futures=True)
         return {entry['asset']: float(entry['balance']) for entry in balances}
 
+    def get_futures_account_summary(self) -> Dict:
+        """Fetch full futures account info from /fapi/v2/account.
+
+        Key fields in response:
+          totalWalletBalance    – actual wallet balance (USDT)
+          totalMarginBalance    – wallet + unrealizedPnL
+          totalUnrealizedProfit – sum of unrealizedPnL across all open positions
+          positions[]           – per-position detail (positionAmt, unrealizedProfit, entryPrice)
+
+        Returns the raw response dict (caller handles error checking).
+        """
+        return self._signed_request('GET', '/fapi/v2/account', futures=True)
+
     def get_futures_positions(self) -> List[Dict]:
         return self._signed_request('GET', '/fapi/v2/positionRisk', futures=True)
 

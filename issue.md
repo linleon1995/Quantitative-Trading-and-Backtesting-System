@@ -30,10 +30,13 @@
 - S-5 [ ] 區分 offline backtest、online backtest、production 三種環境，並能在三種環境中切換
 - S-6 [x] ~~online backtest 每次重新開始時關閉所有 position，並 reset asset/account~~
 - S-7 [ ] reset account 以確保每次測試初始條件一致
-- S-8 [ ] 績效 Summary 指標
-    - S-8.1 最大回撤、最大連續虧損、最大連續獲利、勝率、盈虧比、平均持倉時間
-    - S-8.2 交易密度、手續費占比、資金利用率
-    - S-8.3 風險指標：夏普比率、索提諾比率
+- S-8 [x] ~~績效 Summary 指標（S-8.1 + S-8.2 已實現）~~
+    - S-8.1 [x] ~~遠端指標（每次 periodic_update 從交易所拉取）：Wallet Balance, Margin Balance, Unrealized PnL, Open PnL（各持倉）, 現有持倉數量~~
+    - S-8.2 [x] ~~本地歷史指標（從 trade records 計算）：最大回撤、最大連續虧損、最大連續獲利、勝率、盈虧比（Profit Factor）、平均持倉時間~~
+
+- S-9 [ ] 進階績效指標（未來考慮）
+    - S-9.1 交易密度、手續費占比、資金利用率
+    - S-9.2 風險指標：夏普比率、索提諾比率
 
 ### 策略
 - T-1 [ ] 為何會交易 USDCUSDT 這類標的（穩定幣不應列入交易）

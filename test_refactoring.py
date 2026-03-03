@@ -341,7 +341,15 @@ def test_online_backtest_reset():
         assert orchestrator.portfolio.total_trades == 0
         assert orchestrator.portfolio.position_count == 0
         assert orchestrator.is_trading_active is True
-        print("✅ Portfolio fully reset to new baseline $4,800.00")
+        # S-8.2 fields must also be zeroed
+        assert orchestrator.portfolio.gross_profit == 0.0
+        assert orchestrator.portfolio.gross_loss == 0.0
+        assert orchestrator.portfolio.max_drawdown == 0.0
+        assert orchestrator.portfolio.max_win_streak == 0
+        assert orchestrator.portfolio.max_loss_streak == 0
+        assert orchestrator.portfolio.total_holding_minutes == 0.0
+        assert orchestrator.portfolio.trade_records == []
+        print("✅ Portfolio fully reset to new baseline $4,800.00 (S-8.2 fields also zeroed)")
 
         # Strategies should be wiped
         for symbol, s in strategies.items():
@@ -363,44 +371,83 @@ def test_online_backtest_reset():
 
 
 def test_portfolio_tracker():
-    """Test portfolio tracking."""
+    """Test portfolio tracking including S-8.2 metrics."""
     print("\n" + "=" * 60)
-    print("Testing Portfolio Tracker")
+    print("Testing Portfolio Tracker (S-8.2 metrics)")
     print("=" * 60)
-    
+
     try:
         from src.orchestrator.live_trading_orchestrator import PortfolioTracker
-        
+
         portfolio = PortfolioTracker(
             initial_capital=100000,
             trading_fee_rate=0.0004
         )
         print("✅ Portfolio tracker created")
-        
-        # Simulate capital changes
-        portfolio.update_capital(105000)
-        print(f"✅ Capital updated: ${portfolio.current_capital:,.2f}")
-        
-        # Test drawdown and return-rate calculations
-        portfolio.update_capital(95000)
+
+        # --- Capital updates and max drawdown tracking ---
+        portfolio.update_capital(110000)  # peak = 110000
+        portfolio.update_capital(99000)   # dd = (110000-99000)/110000 ≈ 10%
         drawdown = portfolio.get_drawdown()
-        total_return = portfolio.get_total_return()
-        print(f"✅ Drawdown from peak: {drawdown*100:.2f}%")
-        print(f"✅ Total return: {total_return*100:+.2f}%")
-        
-        # Test trade recording
-        portfolio.record_trade(profit=500, trade_value=5000)
-        portfolio.record_trade(profit=-200, trade_value=3000)
+        assert portfolio.max_drawdown > 0, "max_drawdown should be > 0 after a drop"
+        expected_dd = (110000 - 99000) / 110000
+        assert abs(portfolio.max_drawdown - expected_dd) < 0.001, (
+            f"max_drawdown {portfolio.max_drawdown:.4f} != expected {expected_dd:.4f}"
+        )
+        print(f"✅ Max drawdown: {portfolio.max_drawdown*100:.2f}% (expected {expected_dd*100:.2f}%)")
+
+        # --- Trade recording with holding_minutes (S-8.2) ---
+        # Trades: WIN 500, WIN 300, LOSS -200, WIN 100, LOSS -150
+        portfolio.record_trade(profit=500,  trade_value=5000,  holding_minutes=45.0)
+        portfolio.record_trade(profit=300,  trade_value=3000,  holding_minutes=30.0)
+        portfolio.record_trade(profit=-200, trade_value=2000,  holding_minutes=20.0)
+        portfolio.record_trade(profit=100,  trade_value=1000,  holding_minutes=15.0)
+        portfolio.record_trade(profit=-150, trade_value=1500,  holding_minutes=60.0)
         print(f"✅ Trades recorded: {portfolio.total_trades}")
-        print(f"   Win rate: {portfolio.get_win_rate()*100:.1f}%")
-        print(f"   Total profit: ${portfolio.total_profit:,.2f}")
-        print(f"   Total fees: ${portfolio.total_fees:,.2f}")
-        
-        # Print summary
+
+        # --- Win rate ---
+        assert portfolio.total_trades == 5
+        assert portfolio.winning_trades == 3
+        assert portfolio.losing_trades == 2
+        assert abs(portfolio.get_win_rate() - 0.6) < 0.001, f"Win rate {portfolio.get_win_rate()}"
+        print(f"✅ Win rate: {portfolio.get_win_rate()*100:.1f}% (expected 60%)")
+
+        # --- Profit factor ---
+        # fee = trade_value * 0.0004 * 2; net_profit = profit - fee
+        # WIN: net = 500 - 5000*0.0008=4, 300 - 2.4, 100 - 0.8 → gross_profit = 496+297.6+99.2 = 892.8
+        # LOSS: net = -200 - 1.6 = -201.6, -150 - 1.2 = -151.2 → gross_loss = 201.6+151.2 = 352.8
+        pf = portfolio.get_profit_factor()
+        assert pf > 1.0, f"Profit factor should be > 1, got {pf}"
+        print(f"✅ Profit factor: {pf:.2f} (expected > 1.0)")
+
+        # --- Consecutive streaks ---
+        # Sequence: WIN, WIN, LOSS, WIN, LOSS → max_win=2, max_loss=1
+        assert portfolio.max_win_streak == 2, f"max_win_streak={portfolio.max_win_streak}, expected 2"
+        assert portfolio.max_loss_streak == 1, f"max_loss_streak={portfolio.max_loss_streak}, expected 1"
+        print(f"✅ Max win streak: {portfolio.max_win_streak}, max loss streak: {portfolio.max_loss_streak}")
+
+        # --- Average holding time ---
+        expected_avg_hold = (45 + 30 + 20 + 15 + 60) / 5  # = 34.0
+        avg_hold = portfolio.get_avg_holding_time()
+        assert abs(avg_hold - expected_avg_hold) < 0.1, (
+            f"Avg hold {avg_hold:.1f}min != expected {expected_avg_hold:.1f}min"
+        )
+        print(f"✅ Avg holding time: {avg_hold:.1f} min (expected {expected_avg_hold:.1f} min)")
+
+        # --- Total return ---
+        total_return = portfolio.get_total_return()
+        print(f"✅ Total return: {total_return*100:+.2f}%")
+
+        # --- Summary output (visual check) ---
         print("\nPortfolio Summary:")
         print(portfolio.get_summary())
-        
+
         return True
+    except AssertionError as e:
+        print(f"❌ Assertion failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
     except Exception as e:
         print(f"❌ Portfolio tracker test failed: {e}")
         import traceback

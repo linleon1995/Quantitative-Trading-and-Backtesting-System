@@ -18,8 +18,8 @@ from src.event import telegram_bot
 
 
 class PortfolioTracker:
-    """Tracks portfolio state and performance metrics."""
-    
+    """Tracks portfolio state and performance metrics (S-8.2)."""
+
     def __init__(self, initial_capital: float, trading_fee_rate: float):
         """
         Args:
@@ -29,72 +29,155 @@ class PortfolioTracker:
             trading_fee_rate: Fee rate per trade leg (e.g., 0.0004 = 0.04%)
         """
         self.initial_capital = initial_capital
-        self.peak_capital = initial_capital   # informational only, not used for stop
+        self.peak_capital = initial_capital
         self.current_capital = initial_capital
         self.trading_fee_rate = trading_fee_rate
-        
-        # Statistics
+
+        # --- Basic stats ---
         self.total_trades = 0
         self.winning_trades = 0
         self.losing_trades = 0
         self.total_profit = 0.0
         self.total_fees = 0.0
-        
+
+        # --- S-8.2: Historical performance ---
+        # Profit factor: gross_profit / gross_loss
+        self.gross_profit: float = 0.0   # Sum of positive net profits
+        self.gross_loss: float = 0.0     # Sum of |negative net profits|
+        # Consecutive streaks
+        self.max_win_streak: int = 0
+        self.max_loss_streak: int = 0
+        self._current_win_streak: int = 0
+        self._current_loss_streak: int = 0
+        # Holding time
+        self.total_holding_minutes: float = 0.0
+        # Running max drawdown (fraction, e.g. 0.15 = 15%)
+        # Updated incrementally in update_capital() so it reflects the live equity curve.
+        self.max_drawdown: float = 0.0
+
+        # Trade records for any future analysis
+        self.trade_records: list = []
+
         # Position tracking
         self.active_positions: Dict[str, list] = defaultdict(list)
         self.position_count = 0
-        
+
+    # ------------------------------------------------------------------
+    # Capital management
+    # ------------------------------------------------------------------
+
     def update_capital(self, new_capital: float):
-        """Update current capital. Peak is tracked for display only."""
+        """Update current capital and incrementally maintain max drawdown and peak."""
         self.current_capital = new_capital
         if new_capital > self.peak_capital:
             self.peak_capital = new_capital
-    
+        # Incrementally update max drawdown
+        if self.peak_capital > 0:
+            dd = (self.peak_capital - new_capital) / self.peak_capital
+            if dd > self.max_drawdown:
+                self.max_drawdown = dd
+
+    # ------------------------------------------------------------------
+    # Trade recording
+    # ------------------------------------------------------------------
+
+    def record_trade(self, profit: float, trade_value: float, holding_minutes: float = 0.0):
+        """Record a completed trade and update all S-8.2 metrics.
+
+        Args:
+            profit: Gross profit (before fees): (exit - entry) * qty
+            trade_value: Exit trade value in USDT (used for fee estimation)
+            holding_minutes: Duration the position was held, in minutes
+        """
+        fee = trade_value * self.trading_fee_rate * 2  # Entry + exit fees
+        net_profit = profit - fee
+
+        # Basic stats
+        self.total_trades += 1
+        self.total_profit += net_profit
+        self.total_fees += fee
+        self.total_holding_minutes += holding_minutes
+
+        # Store full record
+        self.trade_records.append({
+            'net_profit': net_profit,
+            'gross_profit': profit,
+            'fee': fee,
+            'holding_minutes': holding_minutes,
+        })
+
+        # Profit factor + consecutive streaks
+        if net_profit > 0:
+            self.winning_trades += 1
+            self.gross_profit += net_profit
+            self._current_win_streak += 1
+            self._current_loss_streak = 0
+            self.max_win_streak = max(self.max_win_streak, self._current_win_streak)
+        else:
+            self.losing_trades += 1
+            self.gross_loss += abs(net_profit)
+            self._current_loss_streak += 1
+            self._current_win_streak = 0
+            self.max_loss_streak = max(self.max_loss_streak, self._current_loss_streak)
+
+    # ------------------------------------------------------------------
+    # Derived metrics
+    # ------------------------------------------------------------------
+
     def get_total_return(self) -> float:
         """Return rate from initial capital. Negative means loss."""
         if self.initial_capital <= 0:
             return 0.0
         return (self.current_capital - self.initial_capital) / self.initial_capital
-    
+
     def get_drawdown(self) -> float:
-        """Drawdown from peak (informational display only, not used for stop)."""
+        """Current drawdown from peak (live display; not used as stop condition)."""
         if self.peak_capital <= 0:
             return 0.0
         return (self.peak_capital - self.current_capital) / self.peak_capital
-    
-    def record_trade(self, profit: float, trade_value: float):
-        """Record a completed trade."""
-        fee = trade_value * self.trading_fee_rate * 2  # Entry + exit fees
-        net_profit = profit - fee
-        
-        self.total_trades += 1
-        self.total_profit += net_profit
-        self.total_fees += fee
-        
-        if net_profit > 0:
-            self.winning_trades += 1
-        else:
-            self.losing_trades += 1
-    
+
     def get_win_rate(self) -> float:
-        """Calculate win rate."""
+        """Win rate as a fraction [0, 1]."""
         if self.total_trades == 0:
             return 0.0
         return self.winning_trades / self.total_trades
-    
+
+    def get_profit_factor(self) -> float:
+        """Profit Factor = Gross Profit / Gross Loss.  >1 means net profitable."""
+        if self.gross_loss == 0:
+            return float('inf') if self.gross_profit > 0 else 1.0
+        return self.gross_profit / self.gross_loss
+
+    def get_avg_holding_time(self) -> float:
+        """Average position holding time in minutes."""
+        if self.total_trades == 0:
+            return 0.0
+        return self.total_holding_minutes / self.total_trades
+
+    # ------------------------------------------------------------------
+    # Summary strings
+    # ------------------------------------------------------------------
+
     def get_summary(self) -> str:
-        """Get portfolio summary string."""
+        """Get portfolio summary string (S-8.2 metrics included)."""
         total_return = self.get_total_return()
+        pf = self.get_profit_factor()
+        pf_str = f"{pf:.2f}" if pf != float('inf') else "∞"
         return f"""
 Portfolio Summary:
   Capital: ${self.current_capital:,.2f} (Initial: ${self.initial_capital:,.2f})
   Total Return: {total_return*100:+.2f}%
-  Peak Capital: ${self.peak_capital:,.2f} (informational)
-  Drawdown from Peak: {self.get_drawdown()*100:.2f}%
-  
+  Peak Capital: ${self.peak_capital:,.2f}
+  Current Drawdown: {self.get_drawdown()*100:.2f}%
+  Max Drawdown: {self.max_drawdown*100:.2f}%
+
   Total Trades: {self.total_trades}
-  Win Rate: {self.get_win_rate()*100:.1f}%
-  Total Profit: ${self.total_profit:,.2f}
+  Win Rate: {self.get_win_rate()*100:.1f}%  (W: {self.winning_trades} / L: {self.losing_trades})
+  Profit Factor: {pf_str}
+  Max Win Streak: {self.max_win_streak}  Max Loss Streak: {self.max_loss_streak}
+  Avg Holding Time: {self.get_avg_holding_time():.1f} min
+
+  Total Profit (net): ${self.total_profit:,.2f}
   Total Fees: ${self.total_fees:,.2f}
   Active Positions: {self.position_count}
 """
@@ -252,6 +335,16 @@ class LiveTradingOrchestrator:
         self.portfolio.total_fees = 0.0
         self.portfolio.position_count = 0
         self.portfolio.active_positions.clear()
+        # Reset S-8.2 metrics
+        self.portfolio.gross_profit = 0.0
+        self.portfolio.gross_loss = 0.0
+        self.portfolio.max_win_streak = 0
+        self.portfolio.max_loss_streak = 0
+        self.portfolio._current_win_streak = 0
+        self.portfolio._current_loss_streak = 0
+        self.portfolio.total_holding_minutes = 0.0
+        self.portfolio.max_drawdown = 0.0
+        self.portfolio.trade_records.clear()
         self.logger.info(f"  New baseline capital: ${new_balance:,.2f}")
 
         # --- Step 3: Reset all strategy instances ---
@@ -302,6 +395,68 @@ class LiveTradingOrchestrator:
             self.logger.info(f"Portfolio synced: ${usdt_balance:,.2f}")
         else:
             self.logger.warning("Portfolio sync skipped: could not fetch balance")
+
+    def get_remote_metrics(self) -> Optional[dict]:
+        """Fetch S-8.1 remote metrics from exchange (/fapi/v2/account).
+
+        Returns a dict with current exchange-side snapshot, or None on failure.
+        """
+        try:
+            account = self.trader.get_account_summary()
+            # Error response from BinanceTrader is {'success': False, ...}
+            if isinstance(account, dict) and account.get('success') is False:
+                self.logger.warning(
+                    f"get_remote_metrics: API error {account.get('code')} – {account.get('message')}"
+                )
+                return None
+
+            wallet_balance = float(account.get('totalWalletBalance', 0))
+            margin_balance = float(account.get('totalMarginBalance', 0))
+            unrealized_pnl = float(account.get('totalUnrealizedProfit', 0))
+
+            # Collect open positions (non-zero positionAmt)
+            open_positions = [
+                p for p in account.get('positions', [])
+                if float(p.get('positionAmt', 0)) != 0
+            ]
+            open_pnl_by_symbol = {
+                p['symbol']: {
+                    'unrealizedPnl': float(p.get('unrealizedProfit', 0)),
+                    'positionAmt': float(p.get('positionAmt', 0)),
+                    'entryPrice': float(p.get('entryPrice', 0)),
+                }
+                for p in open_positions
+            }
+
+            return {
+                'wallet_balance': wallet_balance,
+                'margin_balance': margin_balance,
+                'unrealized_pnl': unrealized_pnl,
+                'open_positions_count': len(open_positions),
+                'open_pnl_by_symbol': open_pnl_by_symbol,
+            }
+        except Exception as e:
+            self.logger.warning(f"get_remote_metrics failed: {e}")
+            return None
+
+    def format_remote_metrics(self, metrics: dict) -> str:
+        """Format S-8.1 remote metrics dict as a human-readable string."""
+        lines = [
+            "Remote Account Metrics (S-8.1):",
+            f"  Wallet Balance:    ${metrics['wallet_balance']:>12,.2f}",
+            f"  Margin Balance:    ${metrics['margin_balance']:>12,.2f}",
+            f"  Unrealized PnL:    ${metrics['unrealized_pnl']:>+12,.2f}",
+            f"  Open Positions:    {metrics['open_positions_count']}",
+        ]
+        if metrics['open_pnl_by_symbol']:
+            lines.append("  Open PnL by Symbol:")
+            for sym, info in metrics['open_pnl_by_symbol'].items():
+                lines.append(
+                    f"    {sym}: qty={info['positionAmt']:+.4f} "
+                    f"entry={info['entryPrice']:.4f} "
+                    f"upnl={info['unrealizedPnl']:+.2f}"
+                )
+        return "\n".join(lines)
     
     def calculate_order_quantity(self, price: float, target_value_usdt: float) -> Optional[float]:
         """
@@ -606,7 +761,7 @@ class LiveTradingOrchestrator:
                 )
                 
                 # Update portfolio statistics
-                self.portfolio.record_trade(profit, trade_value)
+                self.portfolio.record_trade(profit, trade_value, holding_minutes=holding_time)
                 self.portfolio.position_count = max(0, self.portfolio.position_count - 1)
                 
                 # Send notification
@@ -635,30 +790,48 @@ class LiveTradingOrchestrator:
     def periodic_update(self):
         """
         Perform periodic updates: portfolio tracking and Telegram notifications.
-        
+
         Should be called regularly in the main loop.
         """
         now = datetime.now()
-        
+
         # Portfolio tracking
         if (now - self.last_portfolio_update).total_seconds() >= self.config.logging.portfolio_tracking_interval:
             self.sync_portfolio_from_exchange()
             self.logger.info(self.portfolio.get_summary())
+
+            # S-8.1: fetch and log remote metrics
+            remote = self.get_remote_metrics()
+            if remote is not None:
+                self.logger.info(self.format_remote_metrics(remote))
+            else:
+                self.logger.warning("Remote metrics unavailable this cycle")
+
             self.last_portfolio_update = now
-            
+
             # Check loss limit (stop if total return <= -max_loss_rate)
             self.check_loss_limit()
-        
+
         # Telegram updates
         if (now - self.last_telegram_update).total_seconds() >= self.config.logging.telegram_update_interval:
+            pf = self.portfolio.get_profit_factor()
+            pf_str = f"{pf:.2f}" if pf != float('inf') else "∞"
+            remote = self.get_remote_metrics()
+            remote_lines = (
+                f"  Wallet: ${remote['wallet_balance']:,.2f}\n"
+                f"  Unrealized PnL: ${remote['unrealized_pnl']:+,.2f}\n"
+                f"  Open Positions: {remote['open_positions_count']}"
+            ) if remote else "  (remote unavailable)"
             summary = (
                 f"📊 Portfolio Update\n"
                 f"Capital: ${self.portfolio.current_capital:,.2f}\n"
                 f"Return: {self.portfolio.get_total_return()*100:+.2f}%\n"
-                f"Drawdown: {self.portfolio.get_drawdown()*100:.2f}%\n"
+                f"Max Drawdown: {self.portfolio.max_drawdown*100:.2f}%\n"
                 f"Trades: {self.portfolio.total_trades} "
-                f"(Win: {self.portfolio.get_win_rate()*100:.0f}%)\n"
-                f"Active Positions: {self.portfolio.position_count}"
+                f"(Win: {self.portfolio.get_win_rate()*100:.0f}% | PF: {pf_str})\n"
+                f"Max Streak W/L: {self.portfolio.max_win_streak}/{self.portfolio.max_loss_streak}\n"
+                f"Avg Hold: {self.portfolio.get_avg_holding_time():.0f}min\n"
+                f"Remote:\n{remote_lines}"
             )
             telegram_bot.send_msg(summary)
             self.last_telegram_update = now

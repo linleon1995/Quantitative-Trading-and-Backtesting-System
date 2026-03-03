@@ -139,6 +139,18 @@ class BinanceTrader(BaseTrader):
         """
         return self.api.get_futures_klines(symbol=symbol, interval=interval, limit=limit)
 
+    def get_account_summary(self) -> Dict:
+        """Fetch full futures account info for S-8.1 remote metrics.
+
+        Returns the raw /fapi/v2/account dict, or {'success': False, ...} on error.
+        Relevant fields: totalWalletBalance, totalMarginBalance, totalUnrealizedProfit,
+        positions[].{symbol, positionAmt, unrealizedProfit, entryPrice}.
+        """
+        try:
+            return self.api.get_futures_account_summary()
+        except BinanceAPIException as exc:
+            return {'success': False, 'message': exc.message, 'code': exc.error_code}
+
     def get_balance(self, account_type: str = 'spot') -> Dict:
         """Return balances for the requested Binance account type."""
         account_type = account_type.lower()

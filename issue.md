@@ -23,7 +23,7 @@
 ### 系統
 - S-1 [ ] 能夠回復狀態（backtest & live trading 皆適用）
     - S-1.1 [ ] 透過 DB sync，live trading 優先注入最新交易紀錄
-    - S-1.2 [ ] 交易的 queue data 也需同步
+    - S-1.2 [ ] 交易的 queue data 也需同步 (strategy state, portfolio state)，確保回復後能夠繼續執行策略邏輯
 - S-2 [ ] 能夠紀錄交易紀錄並分析（紀錄 API 所有可記錄的資料）
 - S-3 [ ] log 分天保存（現有 log 過大）
 - S-4 [ ] 移除非必要檔案，合併重複功能，簡化現有模組
@@ -37,6 +37,7 @@
 - S-9 [ ] 進階績效指標（未來考慮）
     - S-9.1 交易密度、手續費占比、資金利用率
     - S-9.2 風險指標：夏普比率、索提諾比率
+- S-10 [ ] 新幣上架自動追蹤訂閱（Futures 上新的 PERPETUAL symbol 能自動加入 producer 訂閱）
 
 ### 策略
 - T-1 [ ] 為何會交易 USDCUSDT 這類標的（穩定幣不應列入交易）
@@ -44,9 +45,16 @@
 - T-3 [ ] 買進條件：過去呈現上漲趨勢（較長期，數小時以上）
 - T-4 [ ] 買進條件：回撤不跌破上次近期低點
 - T-5 [ ] Filter 條件（待定義）
+- T-6 [ ] 固定比例持倉策略：每次買入固定比例（如 10%），所有幣種總持倉上限 100%，超過不追加
+- T-7 [ ] 多幣種資金管理：不同幣種策略間的資金分配與互相影響需統一管控
+- T-8 [ ] 指數追蹤與績效對比（以 BTC 或加權市場平均作為 benchmark）
 
 ### 部署
-（待補充）
+- D-1 [ ] Producer `docker-compose` vs `docker run` 連線行為差異：`compose` 正常但 `docker run` 無法連上 Kafka，需分析 CMD / 網路設定
+- D-2 [ ] Producer log 更新頻率：每 tick 都寫 log 過於頻繁，但完全不寫又難以追蹤，需設計合理頻率（如每分鐘彙整一次）
+- D-3 [ ] WebSocket 斷線自動重連：處理 `ERROR - WebSocket error: received 1001 (going away)` 自動重試連線
+- D-4 [ ] 補充 docker-compose 常用執行指令與啟動說明文件（script 或 README）
+- D-5 [ ] 動態區分 localhost 與 Docker 環境的 Kafka broker endpoint（可先略過）
 
 
 ## Bug
@@ -79,3 +87,5 @@
     - `-1022` Signature not valid（`币安人生USDT` 等含特殊字元的 symbol）
     - `-4140` Invalid symbol status for opening position（symbol 已下架或暫停）
     - `-2027` Exceeded the maximum allowable position at current leverage（倉位超過槓桿上限，與 B-4 相關）
+
+- B-7 [ ] 時區不一致：timestamp 顯示與計算可能混用 UTC / local time，影響持倉時間計算與 log 對照

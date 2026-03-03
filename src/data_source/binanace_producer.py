@@ -18,7 +18,7 @@ logging.basicConfig(filename='logs/binanace_producer.log', level=logging.INFO,
 
 KAFKA_BOOTSTRAP_SERVERS = ['kafka:9092']
 KAFKA_TOPIC = 'binance_kline'
-BINANCE_WS_URI = "wss://stream.binance.com:9443/ws"
+BINANCE_WS_URI = "wss://fstream.binance.com/ws"  # Futures WebSocket
 STREAMS_PER_WS = 100
 
 
@@ -111,13 +111,16 @@ class BinanceKafkaProducerManager:
 def main():
     create_kafka_topic(KAFKA_TOPIC, KAFKA_BOOTSTRAP_SERVERS)
 
-    url = "https://api.binance.com/api/v3/exchangeInfo"
+    # Use Futures exchangeInfo so symbols are consistent with where we place orders
+    url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
     response = requests.get(url)
     data = response.json()
     symbols = [
         f"{symbol_info['symbol'].lower()}@kline_1m"
         for symbol_info in data['symbols']
-        if symbol_info['symbol'].endswith('USDT') and symbol_info['status'] == 'TRADING'
+        if symbol_info['symbol'].endswith('USDT')
+        and symbol_info['status'] == 'TRADING'
+        and symbol_info.get('contractType') == 'PERPETUAL'
     ]
 
     logging.info(f"Total symbols: {len(symbols)}")

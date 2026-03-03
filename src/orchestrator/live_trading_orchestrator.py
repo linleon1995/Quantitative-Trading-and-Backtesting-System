@@ -344,6 +344,65 @@ class LiveTradingOrchestrator:
             quantity = 1 if precision == 0 else 10 ** (-precision)
             
         return quantity
+
+    def _get_exchange_position_quantity(self, symbol: str) -> Optional[float]:
+        """Get current absolute futures position quantity for symbol from exchange."""
+        positions = self.trader.get_positions(account_type='futures')
+        if isinstance(positions, dict) and positions.get('success') is False:
+            self.logger.warning(
+                f"[{symbol}] Could not fetch futures positions: {positions.get('message')}"
+            )
+            return None
+
+        if not isinstance(positions, dict):
+            self.logger.warning(f"[{symbol}] Unexpected futures positions format: {positions}")
+            return None
+
+        info = positions.get(symbol)
+        if not info:
+            return None
+
+        try:
+            qty = abs(float(info.get('positionAmt', 0)))
+        except (TypeError, ValueError):
+            return None
+        return qty if qty > 0 else None
+
+    def _log_sync_diagnosis(self, symbol: str, local_size, remote_size: Optional[float]):
+        """Classify and log sync root-cause candidates for position size mismatch."""
+        try:
+            normalized_local: Optional[float] = abs(float(local_size)) if local_size is not None else None
+            if normalized_local is not None and normalized_local <= 0:
+                normalized_local = None
+        except (TypeError, ValueError):
+            normalized_local = None
+
+        # Type 1: local state desynced, but remote position exists
+        if normalized_local is None and remote_size is not None:
+            self.logger.error(
+                f"[{symbol}] SYNC_DIAGNOSIS TYPE-1: local position size invalid ({local_size}), "
+                f"but remote position exists (qty={remote_size}). "
+                "Likely local↔remote sync lag/state corruption."
+            )
+            return
+
+        # Type 2: local thinks position exists, remote has no position
+        if remote_size is None:
+            self.logger.error(
+                f"[{symbol}] SYNC_DIAGNOSIS TYPE-2: local has position (size={local_size}) "
+                "but remote has no position. "
+                "Likely local assumed fill but exchange did not actually open position."
+            )
+            return
+
+        # Extra diagnostic: both exist but size mismatch is large
+        if normalized_local is not None and remote_size is not None:
+            mismatch_ratio = abs(normalized_local - remote_size) / max(remote_size, 1e-12)
+            if mismatch_ratio > 0.2:
+                self.logger.warning(
+                    f"[{symbol}] SYNC_DIAGNOSIS SIZE-MISMATCH: local={normalized_local}, "
+                    f"remote={remote_size}, mismatch={mismatch_ratio*100:.1f}%"
+                )
     
     def handle_signal(self, signal: TradingSignal, strategy):
         """
@@ -403,7 +462,15 @@ class LiveTradingOrchestrator:
             if result.get('success'):
                 order_data = result['data']
                 order_id = order_data.get('orderId')
-                executed_qty = float(order_data.get('executedQty', position_size))
+                executed_qty = float(order_data.get('executedQty', 0))
+                if executed_qty <= 0:
+                    remote_qty = self._get_exchange_position_quantity(signal.symbol)
+                    self.logger.error(
+                        f"[{signal.symbol}] BUY returned executedQty={executed_qty} "
+                        f"(raw={order_data.get('executedQty')}); "
+                        f"exchange position after order: {remote_qty}. Position not tracked locally."
+                    )
+                    return
                 executed_price = float(order_data.get('avgPrice', signal.price))
                 
                 if executed_price <= 0:
@@ -469,9 +536,19 @@ class LiveTradingOrchestrator:
             if not position:
                 self.logger.error(f"[{signal.symbol}] No position in SELL signal metadata")
                 return
-            
+
+            quantity = float(position.get('size', 0))
+            if quantity <= 0:
+                remote_qty = self._get_exchange_position_quantity(signal.symbol)
+                self._log_sync_diagnosis(
+                    symbol=signal.symbol,
+                    local_size=position.get('size'),
+                    remote_size=remote_qty,
+                )
+                return
+
             self.logger.info(
-                f"[{signal.symbol}] Attempting SELL {position['size']} at market price "
+                f"[{signal.symbol}] Attempting SELL {quantity} at market price "
                 f"~{signal.price:.2f}, Reason: {signal.reason}"
             )
             
@@ -479,14 +556,14 @@ class LiveTradingOrchestrator:
             result = self.trader.close_futures_position(
                 symbol=signal.symbol,
                 side='SELL',
-                quantity=position['size'],
+                quantity=quantity,
                 order_type='MARKET'
             )
             
             if result.get('success'):
                 order_data = result['data']
                 order_id = order_data.get('orderId')
-                executed_qty = float(order_data.get('executedQty', position['size']))
+                executed_qty = float(order_data.get('executedQty', quantity))
                 executed_price = float(order_data.get('avgPrice', signal.price))
                 
                 if executed_price <= 0:
@@ -521,7 +598,7 @@ class LiveTradingOrchestrator:
                 self.logger.info("=" * 80)
                 
                 # Update strategy's internal position tracking
-                trade_record = strategy.close_position(
+                strategy.close_position(
                     position=position,
                     exit_price=executed_price,
                     exit_time=signal.timestamp,
@@ -530,7 +607,7 @@ class LiveTradingOrchestrator:
                 
                 # Update portfolio statistics
                 self.portfolio.record_trade(profit, trade_value)
-                self.portfolio.position_count -= 1
+                self.portfolio.position_count = max(0, self.portfolio.position_count - 1)
                 
                 # Send notification
                 telegram_bot.send_msg(

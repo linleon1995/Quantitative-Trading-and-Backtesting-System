@@ -122,6 +122,10 @@ class BinanceTrader(BaseTrader):
         except BinanceAPIException as exc:
             return {'success': False, 'message': exc.message, 'code': exc.error_code}
 
+    def get_futures_symbols(self) -> set:
+        """Return the set of USDT-margined perpetual symbols currently TRADING on futures."""
+        return self.api.get_futures_symbols()
+
     def get_balance(self, account_type: str = 'spot') -> Dict:
         """Return balances for the requested Binance account type."""
         account_type = account_type.lower()

@@ -73,6 +73,15 @@ class BinanceAPI:
         else:
             print("Error:", response.status_code)
             return []
+
+    def get_futures_symbols(self) -> set:
+        """Return the set of USDT-margined perpetual symbols currently TRADING on futures."""
+        data = self._public_request('GET', '/fapi/v1/exchangeInfo', futures=True)
+        return {
+            s['symbol']
+            for s in data.get('symbols', [])
+            if s.get('status') == 'TRADING' and s.get('contractType') == 'PERPETUAL'
+        }
         
     # TODO: take care the exceptiion of return data more than 1000 counts.
     def get_klines(self, symbol='BTCUSDT', interval='1m', startTime=None, endTime=None, timeZone='8', limit=1440):
@@ -386,6 +395,10 @@ class BinanceAPI:
             'side': side.upper(),
             'type': order_type.upper(),
             'quantity': quantity,
+            # Request full fill result immediately.
+            # Default is ACK which returns executedQty="0" and avgPrice="0"
+            # regardless of actual fill, causing downstream position size = 0.
+            'newOrderRespType': 'RESULT',
         }
         if price is not None:
             payload['price'] = price

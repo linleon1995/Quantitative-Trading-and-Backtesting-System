@@ -19,3 +19,4 @@ data/
 results/
 
 logs/
+.worktrees/

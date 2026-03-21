@@ -9,6 +9,7 @@ Architecture:
 """
 import json
 import logging
+import logging.handlers
 import os
 import sys
 from datetime import datetime
@@ -29,7 +30,7 @@ load_dotenv()
 
 
 def setup_logging(config) -> logging.Logger:
-    """Setup logging with file and console handlers."""
+    """Setup logging with daily-rotating file and console handlers (S-3)."""
     # Ensure log directory exists
     log_file = Path(config.logging.log_file)
     log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -40,9 +41,17 @@ def setup_logging(config) -> logging.Logger:
     
     # Remove existing handlers
     logger.handlers.clear()
-    
-    # File handler
-    file_handler = logging.FileHandler(config.logging.log_file, mode='a')
+
+    # Daily-rotating file handler: rotates at midnight, keeps log_backup_days files.
+    # Rotated files are named e.g. live_trading.log.2026-03-05
+    file_handler = logging.handlers.TimedRotatingFileHandler(
+        filename=config.logging.log_file,
+        when='midnight',
+        interval=1,
+        backupCount=config.logging.log_backup_days,
+        encoding='utf-8',
+        utc=True,
+    )
     file_handler.setLevel(logging.DEBUG)
     file_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -117,6 +126,25 @@ def run_live_trading():
     except Exception as e:
         logger.critical(f"Failed to connect to Binance: {e}")
         raise
+
+    # --- Startup symbol filter: exclude low-liquidity symbols (S-11) ---
+    # Fetch 24 h quoteVolume for all futures symbols once at startup.
+    # Symbols below the threshold are added to excluded_symbols and silently
+    # skipped when Kafka messages arrive, avoiding wasted warmup and bad orders.
+    excluded_symbols: set = set()
+    if config.trading.min_24h_volume_usdt > 0:
+        logger.info(
+            f"Fetching 24 h volume stats to pre-filter symbols "
+            f"(min={config.trading.min_24h_volume_usdt/1e6:.0f} M USDT)..."
+        )
+        try:
+            excluded_symbols = trader.get_low_volume_symbols(config.trading.min_24h_volume_usdt)
+            logger.info(
+                f"24 h volume filter: {len(excluded_symbols)} symbol(s) excluded "
+                f"(quoteVolume < {config.trading.min_24h_volume_usdt/1e6:.0f} M USDT)"
+            )
+        except Exception as vol_err:
+            logger.warning(f"Volume pre-filter failed ({vol_err}); all symbols will be processed.")
     
     # Initialize orchestrator
     orchestrator = LiveTradingOrchestrator(
@@ -181,8 +209,11 @@ def run_live_trading():
             try:
                 timestamp_str = raw_data['timestamp']
                 symbol = raw_data['symbol']
-                close_price = float(raw_data['close_price'])
-                
+
+                # Skip symbols excluded by the 24 h volume pre-filter (S-11)
+                if symbol in excluded_symbols:
+                    continue
+
                 # Initialize strategy for new symbols
                 if symbol not in strategies:
                     logger.info(f"Initializing strategy for {symbol}")
@@ -207,6 +238,12 @@ def run_live_trading():
                         hold_minutes=config.strategy.hold_minutes,
                         max_positions=config.trading.max_positions,
                         on_signal=None,
+                        min_atr_pct=config.strategy.min_atr_pct,
+                        min_adx=config.strategy.min_adx,
+                        min_volume_usdt=config.strategy.min_volume_usdt,
+                        min_vol_ratio=config.strategy.min_vol_ratio,
+                        min_price=config.strategy.min_price,
+                        max_price=config.strategy.max_price,
                     )
 
                     # --- B-5 fix: pre-warm indicators with historical klines ---

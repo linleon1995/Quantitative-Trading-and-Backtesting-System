@@ -605,7 +605,26 @@ class LiveTradingOrchestrator:
                 f"[{signal.symbol}] Attempting BUY {position_size} at market price ~{signal.price:.2f}"
             )
             self.logger.info(f"  Reason: {signal.reason}")
-            
+
+            # Ensure leverage is set to config value, capped at the exchange maximum
+            # for this symbol. This fixes -2027 when the account has a stale high
+            # leverage (e.g. 20x) but the symbol only allows 5x.
+            target_leverage = self.config.strategy.leverage
+            lev_result = self.trader.set_leverage(signal.symbol, target_leverage)
+            if lev_result.get('success'):
+                applied_lev = lev_result['leverage']
+                if not lev_result.get('cached'):
+                    self.logger.info(
+                        f"[{signal.symbol}] Leverage set to {applied_lev}x "
+                        f"(requested {target_leverage}x)"
+                    )
+            else:
+                self.logger.warning(
+                    f"[{signal.symbol}] set_leverage failed "
+                    f"(code={lev_result.get('code')}): {lev_result.get('message')}. "
+                    "Proceeding with current exchange leverage."
+                )
+
             # Execute via trader
             result = self.trader.open_futures_position(
                 symbol=signal.symbol,

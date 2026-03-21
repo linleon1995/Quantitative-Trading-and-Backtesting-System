@@ -1,3 +1,4 @@
+import logging
 from collections import deque
 from typing import Callable, Optional, Dict, Any
 from enum import Enum
@@ -40,7 +41,15 @@ class DynamicBreakoutTrader:
                  pr_y: float = 0.7, atr_period: int = 14, max_risk: float = 0.02, 
                  leverage: int = 1, adx_period: int = 14, drawback: float = 0.05,
                  hold_minutes: int = 60, max_positions: int = 1,
-                 on_signal: Optional[Callable[[TradingSignal], None]] = None):
+                 on_signal: Optional[Callable[[TradingSignal], None]] = None,
+                 # --- Signal filters (set to 0 / None to disable) ---
+                 min_atr_pct: float = 0.003,
+                 min_adx: float = 0.0,
+                 min_volume_usdt: float = 0.0,
+                 min_vol_ratio: float = 1.0,
+                 min_price: float = 0.0,
+                 max_price: float = 0.0,
+                 ):
         """
         Initialize the strategy.
         
@@ -57,6 +66,20 @@ class DynamicBreakoutTrader:
             hold_minutes: Minimum holding time before exit
             max_positions: Maximum concurrent positions for this symbol
             on_signal: Callback function to receive trading signals
+
+            Filter parameters (set to 0 to disable):
+            min_atr_pct: Minimum ATR as % of price (e.g. 0.003 = 0.3%).
+                Filters out low-volatility / very cheap coins where the
+                breakout threshold collapses to ≈ rolling_high and every
+                tick triggers a BUY (e.g. YGGUSDT, DOGEUSDT at tiny prices).
+            min_adx: Minimum mean_adx value required for entry. Filters
+                out choppy, trendless markets. 0 = disabled.
+            min_volume_usdt: Minimum notional volume per bar in USDT
+                (volume * price). Filters illiquid coins. 0 = disabled.
+            min_vol_ratio: Volume must exceed mean_vol * min_vol_ratio
+                (default 1.0 = same as current, set >1 for stronger surge).
+            min_price: Skip symbols below this absolute price. 0 = disabled.
+            max_price: Skip symbols above this absolute price. 0 = disabled.
         """
         self.symbol = symbol
         self.lookback = lookback
@@ -69,6 +92,14 @@ class DynamicBreakoutTrader:
         self.drawback = drawback
         self.hold_minutes = hold_minutes
         self.max_positions = max_positions
+
+        # --- Filter settings ---
+        self.min_atr_pct = min_atr_pct          # 0 = disabled
+        self.min_adx = min_adx                  # 0 = disabled
+        self.min_volume_usdt = min_volume_usdt  # 0 = disabled
+        self.min_vol_ratio = min_vol_ratio       # ≥ 1.0
+        self.min_price = min_price              # 0 = disabled
+        self.max_price = max_price              # 0 = disabled
         
         # Callback for signal emission
         self.on_signal = on_signal
@@ -97,6 +128,8 @@ class DynamicBreakoutTrader:
         self.num_trade = 0
         self.total_earn = 0.0
         self.avg_earn = 0.0
+
+        self.logger = logging.getLogger(f"strategy.{symbol}")
 
     def warmup_with_history(self, bars: list) -> int:
         """Pre-warm all indicators using historical bars WITHOUT emitting signals.
@@ -135,7 +168,8 @@ class DynamicBreakoutTrader:
         return len(bars)
 
     def _update_mean(self, old_mean, new_val, length):
-        return (old_mean * (length - 1) + new_val) / length if old_mean else new_val
+        # NOTE: must check `is not None`, not truthiness — old_mean == 0.0 is valid.
+        return (old_mean * (length - 1) + new_val) / length if old_mean is not None else new_val
 
     def _update_atr(self, price):
         if len(self.prices) >= 2:
@@ -195,23 +229,76 @@ class DynamicBreakoutTrader:
         dynamic_x = self.high - self.pr_x * self.mean_atr
         dynamic_y = self.low + self.pr_y * self.mean_atr
 
+        # ------------------------------------------------------------------
+        # Signal filters — each can be disabled by setting its param to 0
+        # ------------------------------------------------------------------
+
+        # Filter 1: Absolute price range
+        if self.min_price > 0 and price < self.min_price:
+            return
+        if self.max_price > 0 and price > self.max_price:
+            return
+
+        # Filter 2: ATR% — prevents low-volatility / low-price coins from
+        # triggering because dynamic_x ≈ rolling_high when ATR is tiny.
+        # atr_pct = mean_atr / price normalises ATR across different price levels.
+        atr_pct = self.mean_atr / price if price > 0 else 0.0
+        if self.min_atr_pct > 0 and atr_pct < self.min_atr_pct:
+            return
+
+        # Filter 3: ADX trend-strength filter (skip choppy markets)
+        if self.min_adx > 0 and (self.mean_adx is None or self.mean_adx < self.min_adx):
+            return
+
+        # Filter 4: Minimum notional volume (illiquid coin guard)
+        notional_volume = volume * price
+        if self.min_volume_usdt > 0 and notional_volume < self.min_volume_usdt:
+            return
+
         # Entry condition - emit BUY signal
-        if (price >= dynamic_x and volume > self.mean_vol and 
+        # Filter 5: Volume surge ratio (min_vol_ratio ≥ 1.0; default keeps existing behaviour)
+        if (price >= dynamic_x and volume > self.mean_vol * self.min_vol_ratio and
             len(self.positions) < self.max_positions):
-            
+
+            vol_ratio = volume / self.mean_vol if self.mean_vol else 0.0
+            reason = (
+                f"Breakout: price {price:.6f} >= dynamic_x {dynamic_x:.6f}, "
+                f"vol {volume:.2f} > mean*{self.min_vol_ratio} {self.mean_vol * self.min_vol_ratio:.2f}, "
+                f"atr_pct {atr_pct*100:.3f}%"
+            )
+            self.logger.info(
+                "[BUY] ts=%s symbol=%s price=%.6f "
+                "dynamic_x=%.6f dynamic_y=%.6f "
+                "rolling_high=%.6f rolling_low=%.6f "
+                "mean_atr=%.6f atr_pct=%.4f%% "
+                "mean_adx=%s "
+                "volume=%.2f mean_vol=%.2f vol_ratio=%.3f min_vol_ratio=%.2f "
+                "open_positions=%d",
+                timestamp, self.symbol, price,
+                dynamic_x, dynamic_y,
+                self.high, self.low,
+                self.mean_atr, atr_pct * 100,
+                f"{self.mean_adx:.4f}" if self.mean_adx is not None else "N/A",
+                volume, self.mean_vol, vol_ratio, self.min_vol_ratio,
+                len(self.positions),
+            )
             # Emit BUY signal via callback
             signal = TradingSignal(
                 signal_type=SignalType.BUY,
                 symbol=self.symbol,
                 price=price,
                 timestamp=timestamp,
-                reason=f"Breakout: price {price:.2f} >= dynamic_x {dynamic_x:.2f}, volume {volume:.0f} > mean {self.mean_vol:.0f}",
+                reason=reason,
                 metadata={
                     'dynamic_x': dynamic_x,
                     'dynamic_y': dynamic_y,
                     'mean_atr': self.mean_atr,
+                    'atr_pct': atr_pct,
                     'mean_vol': self.mean_vol,
-                    'mean_adx': self.mean_adx
+                    'vol_ratio': vol_ratio,
+                    'mean_adx': self.mean_adx,
+                    'rolling_high': self.high,
+                    'rolling_low': self.low,
                 }
             )
             if self.on_signal:
@@ -226,17 +313,42 @@ class DynamicBreakoutTrader:
         for pos in self.positions[:]:  # copy to avoid mutation during iteration
             holding_time = (timestamp - pos['entry_time']).total_seconds() / 60
             unrealized_gain = (price - pos['entry']) / pos['entry']
+            stop_loss_price = pos['entry'] * (1 - self.drawback)
+            trailing_stop_price = self.short_high * (1 - self.drawback)
 
-            if (price < self.short_high * (1 - self.drawback) and 
-                holding_time > self.hold_minutes and 
+            self.logger.debug(
+                "[EXIT_CHECK] ts=%s symbol=%s price=%.6f entry=%.6f "
+                "holding_min=%.1f short_high=%.6f trailing_stop=%.6f "
+                "stop_loss=%.6f unrealized_gain=%.4f%%",
+                timestamp, self.symbol, price, pos['entry'],
+                holding_time, self.short_high, trailing_stop_price,
+                stop_loss_price, unrealized_gain * 100,
+            )
+
+            if (price < trailing_stop_price and
+                holding_time > self.hold_minutes and
                 price > pos['entry']):
                 self._emit_sell_signal(timestamp, pos, price, "WIN: Price below short high drawback")
 
-            elif price < self.short_low * (1 - self.drawback):
-                self._emit_sell_signal(timestamp, pos, price, "LOSS: Price below short low drawback")
+            elif price < stop_loss_price:
+                # BUG FIX: was `short_low * (1 - drawback)` — short_low is a
+                # monotonically decreasing all-time minimum, so the threshold
+                # kept dropping and stop-loss almost never triggered.
+                # Now uses a fixed percentage below entry price.
+                self._emit_sell_signal(timestamp, pos, price, "LOSS: Price below entry stop-loss")
 
     def _emit_sell_signal(self, timestamp, pos, exit_price, reason):
         """Emit a SELL signal for a position."""
+        holding_time = (timestamp - pos['entry_time']).total_seconds() / 60
+        gain_pct = (exit_price - pos['entry']) / pos['entry']
+        self.logger.info(
+            "[SELL] ts=%s symbol=%s exit_price=%.6f entry_price=%.6f "
+            "gain=%.4f%% holding_min=%.1f reason=%s "
+            "short_high=%.6f stop_loss_threshold=%.6f",
+            timestamp, self.symbol, exit_price, pos['entry'],
+            gain_pct * 100, holding_time, reason,
+            self.short_high, pos['entry'] * (1 - self.drawback),
+        )
         signal = TradingSignal(
             signal_type=SignalType.SELL,
             symbol=self.symbol,
@@ -245,8 +357,10 @@ class DynamicBreakoutTrader:
             reason=reason,
             metadata={
                 'position': pos,
-                'holding_time_minutes': (timestamp - pos['entry_time']).total_seconds() / 60,
-                'unrealized_gain': (exit_price - pos['entry']) / pos['entry']
+                'holding_time_minutes': holding_time,
+                'gain_pct': gain_pct,
+                'short_high': self.short_high,
+                'stop_loss_threshold': pos['entry'] * (1 - self.drawback),
             }
         )
         if self.on_signal:
@@ -274,6 +388,12 @@ class DynamicBreakoutTrader:
             **metadata
         }
         self.positions.append(position)
+        # Reset short_high to entry price so trailing profit tracks peak from entry onwards
+        self.short_high = entry_price
+        self.logger.info(
+            "[POSITION_OPEN] ts=%s symbol=%s entry=%.6f size=%.6f order_id=%s",
+            entry_time, self.symbol, entry_price, size, order_id,
+        )
         return position
     
     def close_position(self, position: Dict, exit_price: float, exit_time: Any, reason: str = ""):
@@ -310,7 +430,16 @@ class DynamicBreakoutTrader:
         self.total_earn += earn
         self.avg_earn = self.total_earn / self.num_trade if self.num_trade else 0.0
         self.positions.remove(position)
-        
+        self.logger.info(
+            "[POSITION_CLOSE] ts=%s symbol=%s entry=%.6f exit=%.6f "
+            "earn=%.6f gain_pct=%.4f%% holding_min=%.1f reason=%s "
+            "total_trades=%d total_earn=%.6f avg_earn=%.6f",
+            exit_time, self.symbol, position['entry'], exit_price,
+            earn,
+            (exit_price - position['entry']) / position['entry'] * 100,
+            (exit_time - position['entry_time']).total_seconds() / 60 if hasattr(exit_time - position['entry_time'], 'total_seconds') else 0,
+            reason, self.num_trade, self.total_earn, self.avg_earn,
+        )
         return trade_record
 
     def _close_position(self, timestamp, pos, exit_price, reason):

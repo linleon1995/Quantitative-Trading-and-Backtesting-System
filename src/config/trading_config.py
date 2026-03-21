@@ -30,6 +30,14 @@ class StrategyConfig(BaseModel):
     drawback: float = Field(default=0.05, ge=0.0, le=1.0, description="Drawback for exit condition")
     hold_minutes: int = Field(default=60, ge=0, description="Minimum holding time in minutes")
 
+    # Signal filters (set to 0.0 to disable)
+    min_atr_pct: float = Field(default=0.003, ge=0.0, description="Min ATR as fraction of price (0.003=0.3%). Filters low-volatility/low-price coins. 0=disabled.")
+    min_adx: float = Field(default=0.0, ge=0.0, description="Min ADX trend strength. 0=disabled.")
+    min_volume_usdt: float = Field(default=0.0, ge=0.0, description="Min notional volume per bar in USDT (volume*price). 0=disabled.")
+    min_vol_ratio: float = Field(default=1.0, ge=1.0, description="Volume must exceed mean_vol * this ratio. 1.0=same as current behaviour.")
+    min_price: float = Field(default=0.0, ge=0.0, description="Skip symbols below this price. 0=disabled.")
+    max_price: float = Field(default=0.0, ge=0.0, description="Skip symbols above this price. 0=disabled.")
+
 
 class TradingConfig(BaseModel):
     """Main trading configuration.
@@ -49,6 +57,7 @@ class TradingConfig(BaseModel):
     max_loss_rate: float = Field(default=0.2, gt=0.0, le=1.0, description="Stop when total return < -max_loss_rate (fraction)")
     use_testnet: bool = Field(default=True, description="Use testnet environment")
     reset_on_start: bool = Field(default=False, description="Close all positions and re-baseline portfolio on startup (online backtest mode)")
+    min_24h_volume_usdt: float = Field(default=0.0, ge=0.0, description="Skip symbols whose 24 h quoteVolume is below this (USDT). 0=disabled. e.g. 150_000_000 for 150 M.")
 
     @field_validator('max_loss_rate')
     @classmethod
@@ -77,11 +86,13 @@ class LoggingConfig(BaseModel):
     Fields:
         log_level: Logging level (default: 'INFO')
         log_file: Path to log file (default: 'logs/live_trading.log')
+        log_backup_days: Number of daily rotated log files to keep (default: 30)
         telegram_update_interval: Interval for Telegram updates in seconds (default: 600 = 10 minutes)
         portfolio_tracking_interval: Interval for portfolio tracking in seconds (default: 300 = 5 minutes)
     """
     log_level: str = Field(default='INFO', description="Logging level")
     log_file: str = Field(default='logs/live_trading.log', description="Log file path")
+    log_backup_days: int = Field(default=30, ge=1, description="Days of rotated log files to retain")
     telegram_update_interval: int = Field(default=600, ge=60, description="Telegram update interval (seconds)")
     portfolio_tracking_interval: int = Field(default=300, ge=60, description="Portfolio tracking interval (seconds)")
 
@@ -112,11 +123,19 @@ Strategy:
   - Drawback: {self.strategy.drawback}, Hold Time: {self.strategy.hold_minutes}min
   - Max Risk: {self.strategy.max_risk}, Leverage: {self.strategy.leverage}
 
+Filters:
+  - Min ATR%: {self.strategy.min_atr_pct*100:.3f}% ({'enabled' if self.strategy.min_atr_pct > 0 else 'disabled'})
+  - Min ADX: {self.strategy.min_adx} ({'enabled' if self.strategy.min_adx > 0 else 'disabled'})
+  - Min Volume USDT: {self.strategy.min_volume_usdt:,.0f} ({'enabled' if self.strategy.min_volume_usdt > 0 else 'disabled'})
+  - Min Vol Ratio: {self.strategy.min_vol_ratio}x
+  - Price Range: [{self.strategy.min_price or 'any'}, {self.strategy.max_price or 'any'}]
+
 Trading:
   - Max Positions: {self.trading.max_positions}
   - Trade Value: ${self.trading.trade_value_usdt:,.2f}
   - Trading Fee: {self.trading.trading_fee_rate*100:.3f}%
   - Max Loss Rate: -{self.trading.max_loss_rate*100:.1f}% total return
+  - Min 24h Vol: ${self.trading.min_24h_volume_usdt/1e6:.0f}M ({'enabled' if self.trading.min_24h_volume_usdt > 0 else 'disabled'})
   - Environment: {'TESTNET' if self.trading.use_testnet else 'PRODUCTION'}
   - Reset on Start: {'YES (online backtest mode)' if self.trading.reset_on_start else 'No'}
 
@@ -148,6 +167,12 @@ def load_config_from_env() -> LiveTradingConfig:
             leverage=int(os.getenv('STRATEGY_LEVERAGE', '1')),
             drawback=float(os.getenv('STRATEGY_DRAWBACK', '0.05')),
             hold_minutes=int(os.getenv('STRATEGY_HOLD_MINUTES', '60')),
+            min_atr_pct=float(os.getenv('STRATEGY_MIN_ATR_PCT', '0.003')),
+            min_adx=float(os.getenv('STRATEGY_MIN_ADX', '0.0')),
+            min_volume_usdt=float(os.getenv('STRATEGY_MIN_VOLUME_USDT', '0.0')),
+            min_vol_ratio=float(os.getenv('STRATEGY_MIN_VOL_RATIO', '1.0')),
+            min_price=float(os.getenv('STRATEGY_MIN_PRICE', '0.0')),
+            max_price=float(os.getenv('STRATEGY_MAX_PRICE', '0.0')),
         ),
         trading=TradingConfig(
             max_positions=int(os.getenv('MAX_POSITIONS', '1')),
@@ -156,6 +181,7 @@ def load_config_from_env() -> LiveTradingConfig:
             max_loss_rate=float(os.getenv('MAX_LOSS_RATE', os.getenv('MAX_DRAWDOWN', '0.2'))),
             use_testnet=os.getenv('USE_TESTNET', 'True').lower() == 'true',
             reset_on_start=os.getenv('RESET_ON_START', 'False').lower() == 'true',
+            min_24h_volume_usdt=float(os.getenv('TRADING_MIN_24H_VOLUME_USDT', '0.0')),
         ),
         kafka=KafkaConfig(
             bootstrap_servers=os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:29092').split(','),
@@ -166,6 +192,7 @@ def load_config_from_env() -> LiveTradingConfig:
             log_file=os.getenv('LOG_FILE', 'logs/live_trading.log'),
             telegram_update_interval=int(os.getenv('TELEGRAM_UPDATE_INTERVAL', '600')),
             portfolio_tracking_interval=int(os.getenv('PORTFOLIO_TRACKING_INTERVAL', '300')),
+            log_backup_days=int(os.getenv('LOG_BACKUP_DAYS', '30')),
         ),
     )
     

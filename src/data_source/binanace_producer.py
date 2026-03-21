@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import logging.handlers
 import time
 from datetime import datetime
 from pathlib import Path
@@ -13,8 +14,18 @@ from kafka.admin import KafkaAdminClient, NewTopic
 # Ensure log directory exists
 log_dir = Path('logs')
 log_dir.mkdir(parents=True, exist_ok=True)
-logging.basicConfig(filename='logs/binanace_producer.log', level=logging.INFO, 
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Daily-rotating log: rotates at UTC midnight, keeps 30 days (S-3)
+_log_handler = logging.handlers.TimedRotatingFileHandler(
+    filename='logs/binanace_producer.log',
+    when='midnight',
+    interval=1,
+    backupCount=30,
+    encoding='utf-8',
+    utc=True,
+)
+_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
 
 KAFKA_BOOTSTRAP_SERVERS = ['kafka:9092']
 KAFKA_TOPIC = 'binance_kline'

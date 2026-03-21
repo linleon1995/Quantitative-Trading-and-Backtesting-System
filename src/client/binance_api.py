@@ -3,7 +3,7 @@ import hashlib
 import hmac
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 
 import requests
 from cryptography.hazmat.primitives import hashes
@@ -83,6 +83,24 @@ class BinanceAPI:
             if s.get('status') == 'TRADING' and s.get('contractType') == 'PERPETUAL'
         }
 
+    def get_futures_24h_tickers(self) -> List[Dict]:
+        """Return 24-hour rolling-window stats for ALL USDT-margined futures symbols.
+
+        Calls GET /fapi/v1/ticker/24hr (no symbol param → all symbols).
+        Each item contains at minimum:
+            symbol        str   e.g. "BTCUSDT"
+            quoteVolume   str   24 h traded volume denominated in quote asset (USDT)
+            lastPrice     str   last traded price
+        Returns an empty list on failure.
+        """
+        try:
+            data = self._public_request('GET', '/fapi/v1/ticker/24hr', futures=True)
+            # The endpoint returns a List when no symbol is specified
+            return data if isinstance(data, list) else []
+        except Exception as exc:
+            print(f"get_futures_24h_tickers error: {exc}")
+            return []
+
     def get_futures_klines(
         self,
         symbol: str = 'BTCUSDT',
@@ -90,7 +108,7 @@ class BinanceAPI:
         limit: int = 100,
         startTime=None,
         endTime=None,
-    ):
+    ) -> Optional[List]:
         """Fetch USDT-margined futures klines from /fapi/v1/klines.
 
         Returns a list of kline rows identical in format to spot klines:
@@ -103,7 +121,7 @@ class BinanceAPI:
         if endTime is not None:
             params['endTime'] = endTime
         try:
-            return self._public_request('GET', '/fapi/v1/klines', params=params, futures=True)
+            return cast(Optional[List], self._public_request('GET', '/fapi/v1/klines', params=params, futures=True))
         except Exception as e:
             print(f"get_futures_klines error for {symbol}: {e}")
             return None
@@ -455,6 +473,36 @@ class BinanceAPI:
 
     def get_futures_positions(self) -> List[Dict]:
         return self._signed_request('GET', '/fapi/v2/positionRisk', futures=True)
+
+    def set_futures_leverage(self, symbol: str, leverage: int) -> Dict:
+        """Set leverage for a futures symbol.
+
+        POST /fapi/v1/leverage
+        Returns {'symbol', 'leverage', 'maxNotionalValue'} on success.
+        Raises BinanceAPIException on failure.
+        """
+        return self._signed_request(
+            'POST', '/fapi/v1/leverage',
+            {'symbol': symbol.upper(), 'leverage': int(leverage)},
+            futures=True,
+        )
+
+    def get_futures_leverage_brackets(self, symbol: str) -> List[Dict]:
+        """Return the leverage bracket list for a symbol.
+
+        GET /fapi/v1/leverageBracket?symbol=BTCUSDT
+        Each bracket: {'bracket', 'initialLeverage', 'notionalCap', ...}
+        The first bracket has the highest allowed initialLeverage for that symbol.
+        """
+        data = self._public_request(
+            'GET', '/fapi/v1/leverageBracket',
+            {'symbol': symbol.upper()},
+            futures=True,
+        )
+        # Response is a list: [{'symbol': ..., 'brackets': [...]}]
+        if isinstance(data, list) and data:
+            return data[0].get('brackets', [])
+        return []
 
 
 if __name__ == '__main__':

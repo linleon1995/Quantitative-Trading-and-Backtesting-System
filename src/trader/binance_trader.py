@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from src.trader.base_trader import BaseTrader
 from src.client.binance_api import BinanceAPI, BinanceAPIException
@@ -46,6 +46,10 @@ class BinanceTrader(BaseTrader):
         # Placeholder for web3/Metamask integration
         self.web3_provider = None
         self.metamask_address = None
+
+        # Cache: symbol -> int leverage that was last applied on the exchange
+        # Avoids redundant set_leverage API calls on every order for the same symbol.
+        self._leverage_cache: Dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Spot trading
@@ -126,12 +130,31 @@ class BinanceTrader(BaseTrader):
         """Return the set of USDT-margined perpetual symbols currently TRADING on futures."""
         return self.api.get_futures_symbols()
 
+    def get_low_volume_symbols(self, min_volume_usdt: float) -> set:
+        """Return the set of symbols whose 24 h quoteVolume is BELOW *min_volume_usdt*.
+
+        Used at startup to build an exclusion list so low-liquidity coins are
+        never processed.  Returns an empty set on API failure (fail-open).
+        """
+        try:
+            tickers = self.api.get_futures_24h_tickers()
+            excluded = {
+                t['symbol']
+                for t in tickers
+                if float(t.get('quoteVolume', 0)) < min_volume_usdt
+            }
+            return excluded
+        except Exception as exc:
+            # Fail-open: if we can't fetch volume data, don't block trading
+            print(f"get_low_volume_symbols error: {exc}")
+            return set()
+
     def get_futures_klines(
         self,
         symbol: str,
         interval: str = '1m',
         limit: int = 100,
-    ):
+    ) -> Optional[List]:
         """Fetch recent futures klines for warmup purposes.
 
         Returns raw kline rows [[open_time, open, high, low, close, volume, ...], ...]
@@ -148,6 +171,44 @@ class BinanceTrader(BaseTrader):
         """
         try:
             return self.api.get_futures_account_summary()
+        except BinanceAPIException as exc:
+            return {'success': False, 'message': exc.message, 'code': exc.error_code}
+
+    def get_max_leverage(self, symbol: str) -> int:
+        """Return the maximum allowed leverage for *symbol* on Binance Futures.
+
+        Reads the first (highest-cap) leverage bracket for the symbol.
+        Falls back to 1 on any error so callers can always proceed safely.
+        """
+        try:
+            brackets = self.api.get_futures_leverage_brackets(symbol)
+            if brackets:
+                return int(brackets[0].get('initialLeverage', 1))
+        except BinanceAPIException:
+            pass
+        return 1
+
+    def set_leverage(self, symbol: str, leverage: int) -> Dict:
+        """Set leverage for *symbol*, capped at the exchange maximum.
+
+        Skips the API call when the requested leverage is already cached as
+        the current setting (avoids hitting rate limits on every order).
+
+        Returns:
+            {'success': True, 'leverage': <applied>} on success, or
+            {'success': False, 'message': ..., 'code': ...} on failure.
+        """
+        symbol = symbol.upper()
+        max_lev = self.get_max_leverage(symbol)
+        applied = min(leverage, max_lev)
+
+        if self._leverage_cache.get(symbol) == applied:
+            return {'success': True, 'leverage': applied, 'cached': True}
+
+        try:
+            self.api.set_futures_leverage(symbol, applied)
+            self._leverage_cache[symbol] = applied
+            return {'success': True, 'leverage': applied, 'cached': False}
         except BinanceAPIException as exc:
             return {'success': False, 'message': exc.message, 'code': exc.error_code}
 

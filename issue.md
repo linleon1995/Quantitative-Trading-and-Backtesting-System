@@ -41,7 +41,8 @@
     - S-9.1 交易密度、手續費占比、資金利用率
     - S-9.2 風險指標：夏普比率、索提諾比率
 - S-10 [ ] 新幣上架自動追蹤訂閱（Futures 上新的 PERPETUAL symbol 能自動加入 producer 訂閱）
-- S-11 [x] ~~啟動時依 24h 交易量篩選幣種（`TRADING_MIN_24H_VOLUME_USDT`）~~ **(fixed: live_trading.py)**
+- S-11 [x]
+- S-12 [ ] 單一腳本消費 Kafka 即時價格訊息：實作可獨立執行的 consumer 腳本，用於即時接收與處理行情數據（branch 41 原始目標） ~~啟動時依 24h 交易量篩選幣種（`TRADING_MIN_24H_VOLUME_USDT`）~~ **(fixed: live_trading.py)**
     - 修正：啟動後呼叫 `GET /fapi/v1/ticker/24hr` 一次，將所有 `quoteVolume < min_24h_volume_usdt` 的 symbol 加入 `excluded_symbols` 排除清單
     - Kafka 消費迴圈中對排除清單的 symbol 直接 `continue`，不初始化 strategy 也不暖機
     - 預設 `TRADING_MIN_24H_VOLUME_USDT=0`（disabled），設為 `150000000` 即排除 150 M 以下
@@ -55,6 +56,8 @@
 - T-6 [ ] 固定比例持倉策略：每次買入固定比例（如 10%），所有幣種總持倉上限 100%，超過不追加
 - T-7 [ ] 多幣種資金管理：不同幣種策略間的資金分配與互相影響需統一管控
 - T-8 [ ] 指數追蹤與績效對比（以 BTC 或加權市場平均作為 benchmark）
+- T-10 [ ] 正確計算 total_earn：確保即時收益計算邏輯準確，包括持倉浮盈與已實現損益整合，與交易所回傳的 PnL 數據對齊
+- T-11 [ ] 手續費納入損益計算：每筆買賣均需扣除實際手續費（`trading_fee_rate`），確保 total_earn / avg_earn 反映真實報酬而非毛利
 - T-9 [ ] 買賣條件時間尺度不一致 → SELL 後立即重新 BUY（見 `trade_note.md`）
     - SELL 出場使用短期視窗（`short_high` / `short_low` drawback）判斷動能減弱
     - BUY 進場使用長期滾動高點（`dynamic_x = high - pr_x * mean_atr`，lookback=14）判斷趨勢維持

@@ -1,21 +1,35 @@
 import asyncio
 import json
 import logging
+import logging.handlers
 import time
 from datetime import datetime
+from pathlib import Path
 
 import requests
 import websockets
 from kafka import KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
 
-# logging.basicConfig(level=logging.INFO)
-logging.basicConfig(filename='logs/binanace_producer.log', level=logging.INFO, 
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+# Ensure log directory exists
+log_dir = Path('logs')
+log_dir.mkdir(parents=True, exist_ok=True)
 
-KAFKA_BOOTSTRAP_SERVERS = ['localhost:29092']
+# Daily-rotating log: rotates at UTC midnight, keeps 30 days (S-3)
+_log_handler = logging.handlers.TimedRotatingFileHandler(
+    filename='logs/binanace_producer.log',
+    when='midnight',
+    interval=1,
+    backupCount=30,
+    encoding='utf-8',
+    utc=True,
+)
+_log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
+
+KAFKA_BOOTSTRAP_SERVERS = ['kafka:9092']
 KAFKA_TOPIC = 'binance_kline'
-BINANCE_WS_URI = "wss://stream.binance.com:9443/ws"
+BINANCE_WS_URI = "wss://fstream.binance.com/ws"  # Futures WebSocket
 STREAMS_PER_WS = 100
 
 
@@ -39,45 +53,49 @@ class BinanceKafkaProducerWorker:
         self.last_timestamps = {}
 
     async def run(self):
-        async with websockets.connect(BINANCE_WS_URI) as ws:
-            subscribe_msg = {
-                "method": "SUBSCRIBE",
-                "params": self.symbols,
-                "id": 1
-            }
-            await ws.send(json.dumps(subscribe_msg))
-            logging.info(f"Subscribed: {self.symbols}")
+        while True:  # 外層 loop: 若連線中斷則重試
+            async with websockets.connect(BINANCE_WS_URI) as ws:
+                subscribe_msg = {
+                    "method": "SUBSCRIBE",
+                    "params": self.symbols,
+                    "id": 1
+                }
+                await ws.send(json.dumps(subscribe_msg))
+                logging.info(f"Subscribed: {self.symbols}")
 
-            while True:
-                try:
-                    msg = await ws.recv()
-                    data = json.loads(msg)
+                while True:  # 內層 loop: 接收資料
+                    try:
+                        msg = await ws.recv()
+                        data = json.loads(msg)
 
-                    if 'k' not in data:
-                        continue
+                        if 'k' not in data:
+                            continue
 
-                    symbol = data['s']
-                    kline = data['k']
-                    timestamp = datetime.fromtimestamp(kline['T'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                        symbol = data['s']
+                        kline = data['k']
+                        timestamp = datetime.fromtimestamp(kline['T'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                        
+                        if self.last_timestamps.get(symbol) == timestamp:
+                            continue
+                        self.last_timestamps[symbol] = timestamp
+
+                        tick = {
+                            'timestamp': timestamp,
+                            'symbol': symbol,
+                            'close_price': float(kline['c']),
+                            'volume': float(kline['v']),
+                        }
                     
-                    if self.last_timestamps.get(symbol) == timestamp:
-                        continue
-                    self.last_timestamps[symbol] = timestamp
+                        # TODO: log every minute is too frequent, but not log at all is not easy to track.
+                        logging.info(tick)
 
-                    tick = {
-                        'timestamp': timestamp,
-                        'symbol': symbol,
-                        'close_price': float(kline['c']),
-                        'volume': float(kline['v']),
-                    }
-                    logging.info(tick)
+                        self.producer.send(KAFKA_TOPIC, key=symbol, value=tick)
+                        logging.debug(f"Sent: {tick}")
 
-                    self.producer.send(KAFKA_TOPIC, key=symbol, value=tick)
-                    logging.debug(f"Sent: {tick}")
-
-                except Exception as e:
-                    logging.error(f"WebSocket error: {e}")
-                    await asyncio.sleep(5)
+                    except Exception as e:
+                        logging.error(f"WebSocket error: {e}")
+                        await asyncio.sleep(5)
+                        break
 
 
 class BinanceKafkaProducerManager:
@@ -104,13 +122,16 @@ class BinanceKafkaProducerManager:
 def main():
     create_kafka_topic(KAFKA_TOPIC, KAFKA_BOOTSTRAP_SERVERS)
 
-    url = "https://api.binance.com/api/v3/exchangeInfo"
+    # Use Futures exchangeInfo so symbols are consistent with where we place orders
+    url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
     response = requests.get(url)
     data = response.json()
     symbols = [
         f"{symbol_info['symbol'].lower()}@kline_1m"
         for symbol_info in data['symbols']
-        if symbol_info['symbol'].endswith('USDT') and symbol_info['status'] == 'TRADING'
+        if symbol_info['symbol'].endswith('USDT')
+        and symbol_info['status'] == 'TRADING'
+        and symbol_info.get('contractType') == 'PERPETUAL'
     ]
 
     logging.info(f"Total symbols: {len(symbols)}")

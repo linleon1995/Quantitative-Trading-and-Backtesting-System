@@ -57,6 +57,7 @@ services:
       - KAFKA_BROKERS=kafka:9092
     depends_on:
       - kafka
-
+    stdin_open: true
+    tty: true
 volumes:
   kafka_data:

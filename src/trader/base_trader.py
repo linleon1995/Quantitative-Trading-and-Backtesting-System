@@ -33,3 +33,12 @@ class BaseTrader(ABC):
         Returns the current open positions.
         """
         pass
+
+    def set_leverage(self, symbol: str, leverage: int) -> dict:
+        """Set leverage for a symbol.
+
+        Default implementation is a no-op that returns success so that
+        non-futures traders (e.g. spot) and test stubs work without override.
+        Override in subclasses that support leverage (e.g. BinanceTrader).
+        """
+        return {'success': True, 'leverage': leverage, 'cached': False}

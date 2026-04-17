@@ -33,6 +33,16 @@ class ArcticDBOperator:
         data = lib.read(data_name, date_range=date_range)
         return data
 
+    def has_symbol(self, data_name: str) -> bool:
+        """Return True if the symbol exists in the library."""
+        lib = self.ac[self.lib_name]
+        return lib.has_symbol(data_name)
+
+    def read_last(self, data_name: str):
+        """Return the last row of a symbol (tail=1)."""
+        lib = self.ac[self.lib_name]
+        return lib.read(data_name, row_range=(-1, None))
+
 
 def get_data():
     df = pd.read_csv(r'C:\Users\l8432\Downloads\BTCUSDT-1m-2024-04-05\BTCUSDT-1m-2024-04-05.csv')

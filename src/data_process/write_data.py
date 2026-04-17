@@ -2,14 +2,14 @@ import csv
 import logging
 import pathlib
 import zipfile
-from dataclasses import dataclass, fields
+from dataclasses import fields
 
 # from write_binance_data import format_kline_data
 import pandas as pd
 
 from src.data_source.create_backtest_database import ArcticDBOperator
 
-# from src.data_process.data_structure import BinanceTick # TODO: replace by the one in write_data.py
+from src.data_process.data_structure import BinanceTick
 
 # 假設你已經有 arctic_ops
 # from your_module import arctic_ops
@@ -19,22 +19,6 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
 BATCH_SIZE = 1000  # 一次最多 insert 1000 筆
-
-
-@dataclass
-class BinanceTick:
-    open_time: int
-    open_price: float
-    high_price: float
-    low_price: float
-    close_price: float
-    volume: float
-    close_time: int
-    quote_asset_volume: float
-    number_of_trades: int
-    taker_buy_base_asset_volume: float
-    taker_buy_quote_asset_volume: float
-    unused_field: str
 
 
 def extract_zip(zip_path: pathlib.Path, extract_to: pathlib.Path):

@@ -50,7 +50,6 @@ class BinanceKafkaProducerWorker:
     def __init__(self, symbols: list[str], producer: KafkaProducer):
         self.symbols = symbols
         self.producer = producer
-        self.last_timestamps = {}
 
     async def run(self):
         while True:  # 外層 loop: 若連線中斷則重試
@@ -71,26 +70,27 @@ class BinanceKafkaProducerWorker:
                         if 'k' not in data:
                             continue
 
-                        symbol = data['s']
                         kline = data['k']
-                        timestamp = datetime.fromtimestamp(kline['T'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
-                        
-                        if self.last_timestamps.get(symbol) == timestamp:
-                            continue
-                        self.last_timestamps[symbol] = timestamp
 
+                        # Only emit when the candle is closed (final value)
+                        if not kline.get('x', False):
+                            continue
+
+                        symbol = data['s']
                         tick = {
-                            'timestamp': timestamp,
                             'symbol': symbol,
-                            'close_price': float(kline['c']),
-                            'volume': float(kline['v']),
+                            'interval': kline['i'],
+                            'open_time': int(kline['t']),    # ms
+                            'open':      float(kline['o']),
+                            'high':      float(kline['h']),
+                            'low':       float(kline['l']),
+                            'close':     float(kline['c']),
+                            'volume':    float(kline['v']),
+                            'close_time': int(kline['T']),   # ms
                         }
-                    
-                        # TODO: log every minute is too frequent, but not log at all is not easy to track.
-                        logging.info(tick)
 
                         self.producer.send(KAFKA_TOPIC, key=symbol, value=tick)
-                        logging.debug(f"Sent: {tick}")
+                        logging.debug(f"Closed candle sent: {symbol} {kline['i']} @ {kline['t']}")
 
                     except Exception as e:
                         logging.error(f"WebSocket error: {e}")

@@ -52,9 +52,10 @@ def test_read_delegates_to_operator():
     mock_result.data = _make_df([1_000_000])
     operator.read = MagicMock(return_value=mock_result)
     storage = KlineStorage(operator)
-    storage.read("BTCUSDT", "1m", 0, 9_999_999)
+    result = storage.read("BTCUSDT", "1m", 0, 9_999_999)
     operator.read.assert_called_once_with(
         "BTCUSDT_1m",
         pd.Timestamp(0, unit="ms"),
         pd.Timestamp(9_999_999, unit="ms"),
     )
+    assert result is mock_result.data

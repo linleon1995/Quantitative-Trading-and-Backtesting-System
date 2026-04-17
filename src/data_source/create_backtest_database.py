@@ -1,4 +1,6 @@
 
+from typing import Any
+
 import arcticdb as adb
 import pandas as pd
 
@@ -38,7 +40,7 @@ class ArcticDBOperator:
         lib = self.ac[self.lib_name]
         return lib.has_symbol(data_name)
 
-    def read_last(self, data_name: str):
+    def read_last(self, data_name: str) -> Any:
         """Return the last row of a symbol (tail=1)."""
         lib = self.ac[self.lib_name]
         return lib.read(data_name, row_range=(-1, None))

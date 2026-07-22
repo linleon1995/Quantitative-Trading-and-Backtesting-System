@@ -73,15 +73,15 @@ flowchart LR
 
   K[(Kafka)]
   A[(ArcticDB 行情)]
-  CP[["checkpoint: last_written_time"]]
+  CP[["checkpoint last_written_time"]]
 
   subgraph REC[data-reconciliation 啟動時]
     R[gap-filler init/Job]
   end
 
   subgraph STR[strategy 策略×市場]
-    S1["momentum: binance"]
-    S2["momentum: uniswap"]
+    S1["momentum-binance"]
+    S2["momentum-uniswap"]
   end
 
   subgraph OMS[OMS 每 venue]
@@ -117,6 +117,8 @@ flowchart LR
   S1 <-.指標狀態.-> ST
   S2 <-.指標狀態.-> ST
 ```
+
+> 圖示維護慣例：節點標籤避免使用 `@`（新版 mermaid 保留為 `LINK_ID`）與冒號，改用連字號（`momentum-binance`），以相容各 mermaid 版本。
 
 ## 5. Docker Compose ↔ k3s 元件對照
 

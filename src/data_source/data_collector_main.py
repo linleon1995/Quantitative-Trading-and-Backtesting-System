@@ -15,6 +15,7 @@ from src.client.binance_api import BinanceAPI
 from src.data_process.kline_storage import KlineStorage
 from src.data_source.create_backtest_database import ArcticDBOperator
 from src.data_source.data_collector import DataCollector
+from src.data_source.data_reconciliation import DataReconciliation
 from src.data_source.gap_filler import GapFiller
 
 logging.basicConfig(
@@ -36,9 +37,9 @@ def main():
     api = BinanceAPI()
     operator = ArcticDBOperator(url=ARCTIC_URL, lib_name=ARCTIC_LIB)
     storage = KlineStorage(operator)
-    gap_filler = GapFiller(api=api, storage=storage)
+    reconciliation = DataReconciliation(GapFiller(api=api, storage=storage))
     collector = DataCollector(
-        gap_filler=gap_filler,
+        reconciliation=reconciliation,
         storage=storage,
         symbols=symbols,
         interval=INTERVAL,
@@ -46,7 +47,12 @@ def main():
         kafka_servers=KAFKA_SERVERS,
     )
 
-    collector.startup_fill()
+    report = collector.startup_fill()
+    if not report.ok:
+        logging.warning(
+            "Proceeding to live despite reconciliation failures: %s",
+            [r.symbol for r in report.failures()],
+        )
     collector.run()
 
 

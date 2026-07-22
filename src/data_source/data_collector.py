@@ -16,24 +16,24 @@ import pandas as pd
 from kafka import KafkaConsumer
 
 from src.data_process.kline_storage import KlineStorage
-from src.data_source.gap_filler import GapFiller
+from src.data_source.data_reconciliation import DataReconciliation, ReconcileReport
 
 logger = logging.getLogger(__name__)
 
 
 class DataCollector:
-    """Collects and persists kline data from Kafka with gap-fill on startup."""
+    """Collects and persists kline data from Kafka with reconciliation on startup."""
 
     def __init__(
         self,
-        gap_filler: GapFiller,
+        reconciliation: DataReconciliation,
         storage: KlineStorage,
         symbols: list[str],
         interval: str,
         kafka_topic: str,
         kafka_servers: list[str],
     ) -> None:
-        self._filler = gap_filler
+        self._recon = reconciliation
         self._storage = storage
         self._symbols = set(symbols)
         self._interval = interval
@@ -42,11 +42,20 @@ class DataCollector:
 
     # ── startup ──────────────────────────────────────────────────────────────
 
-    def startup_fill(self) -> None:
-        """Run GapFiller for every configured symbol. Call before run()."""
-        for symbol in self._symbols:
-            logger.info(f"[startup] gap-fill {symbol}/{self._interval}")
-            self._filler.fill(symbol, self._interval)
+    def startup_fill(self) -> ReconcileReport:
+        """Reconcile every configured symbol before live consumption.
+
+        Returns the ReconcileReport so the caller can gate run() on report.ok.
+        Call before run().
+        """
+        logger.info(f"[startup] reconciling {len(self._symbols)} symbols /{self._interval}")
+        report = self._recon.reconcile_all(self._symbols, self._interval)
+        if not report.ok:
+            logger.warning(
+                "[startup] reconciliation had failures: %s",
+                [r.symbol for r in report.failures()],
+            )
+        return report
 
     # ── live loop ─────────────────────────────────────────────────────────────
 

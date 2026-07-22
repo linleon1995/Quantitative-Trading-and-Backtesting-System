@@ -4,8 +4,8 @@ from datetime import datetime
 
 from kafka import KafkaConsumer
 
-from src.strategies.dynamic_breakout_atx import DynamicBreakoutTrader
 from src.event import telegram_bot
+from src.strategies.dynamic_breakout_atx import DynamicBreakoutTrader
 
 KAFKA_BOOTSTRAP_SERVERS = ['localhost:29092']
 KAFKA_TOPIC = 'binance_kline'

@@ -1,22 +1,21 @@
 import unittest
-from unittest.mock import patch, MagicMock, call
-import logging
+from unittest.mock import MagicMock, patch
 
 # Assuming src is on the PYTHONPATH or tests are run in a way that src is discoverable
 # For example, running `python -m unittest discover -s tests` from the root directory
 try:
-    from src.event.telegram_bot import send_msg, TOKEN
+    from src.event.telegram_bot import TOKEN, send_msg
     # If CHAT_ID were a module global used by send_msg, it would be imported here too.
 except ImportError:
     # Fallback for environments where src might not be directly in PYTHONPATH
     # This might happen in some CI or execution environments.
     # Adjust as necessary based on actual project structure and test execution.
-    import sys
     import os
+    import sys
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
-    from src.event.telegram_bot import send_msg, TOKEN
+    from src.event.telegram_bot import send_msg
 
-from requests.exceptions import RequestException # Import RequestException
+from requests.exceptions import RequestException  # Import RequestException
 
 # Disable logging for most tests to keep output clean, can be enabled for debugging
 # logging.disable(logging.CRITICAL)

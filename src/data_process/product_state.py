@@ -1,5 +1,6 @@
 from typing import Any, Dict
 
+
 class ProductState:
     """
     Manages the state of a specific product, including market data and trading status.

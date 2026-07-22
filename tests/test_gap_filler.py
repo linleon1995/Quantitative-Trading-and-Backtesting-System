@@ -1,7 +1,8 @@
 # tests/test_gap_filler.py
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
+
 import pandas as pd
-import pytest
+
 from src.data_source.gap_filler import GapFiller
 
 

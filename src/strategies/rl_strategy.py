@@ -1,12 +1,12 @@
 import abc
-from typing import List
+from collections import deque
 
 import gymnasium as gym
 import numpy as np
-from collections import deque
 
-from src.data_process.data_structure import \
-    GeneralTickData  # Assuming GeneralTickData is the relevant data structure
+from src.data_process.data_structure import (
+    GeneralTickData,  # Assuming GeneralTickData is the relevant data structure
+)
 from src.strategies import Strategy
 from src.strategies.base_strategy import Signal
 

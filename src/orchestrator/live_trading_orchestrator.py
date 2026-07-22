@@ -7,14 +7,14 @@ This class separates concerns:
 - Orchestrator: Coordination, logging, portfolio tracking, notifications
 """
 import logging
+from collections import defaultdict
 from datetime import datetime
 from typing import Dict, Optional
-from collections import defaultdict
 
-from src.strategies.dynamic_breakout_atx import TradingSignal, SignalType
-from src.trader.base_trader import BaseTrader
 from src.config.trading_config import LiveTradingConfig
 from src.event import telegram_bot
+from src.strategies.dynamic_breakout_atx import SignalType, TradingSignal
+from src.trader.base_trader import BaseTrader
 
 
 class PortfolioTracker:

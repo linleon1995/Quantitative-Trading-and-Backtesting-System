@@ -1,6 +1,7 @@
 import unittest
-from abc import ABC, abstractmethod
+
 from src.trader.base_trader import BaseTrader
+
 
 class TestBaseTrader(unittest.TestCase):
 

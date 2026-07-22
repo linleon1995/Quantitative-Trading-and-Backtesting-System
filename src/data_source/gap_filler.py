@@ -6,7 +6,6 @@ results to KlineStorage. Can be called standalone or from DataCollector
 at startup.
 """
 import logging
-from typing import Optional
 
 import pandas as pd
 

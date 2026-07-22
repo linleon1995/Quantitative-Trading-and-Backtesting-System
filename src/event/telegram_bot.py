@@ -7,8 +7,7 @@ import requests
 import telegram.ext.filters as filters
 from telegram import Update
 from telegram.error import NetworkError, TimedOut
-from telegram.ext import (CallbackContext, CommandHandler, MessageHandler,
-                          Updater)
+from telegram.ext import CallbackContext, CommandHandler, MessageHandler, Updater
 
 # from src.binance_api import get_binance_ticker_price
 

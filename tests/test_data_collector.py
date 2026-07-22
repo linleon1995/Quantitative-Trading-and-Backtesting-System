@@ -1,6 +1,6 @@
 # tests/test_data_collector.py
-from unittest.mock import MagicMock, patch, call
-import pytest
+from unittest.mock import MagicMock
+
 from src.data_source.data_collector import DataCollector
 
 

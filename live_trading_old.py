@@ -11,9 +11,9 @@ from typing import Dict, Optional
 from dotenv import load_dotenv
 from kafka import KafkaConsumer
 
+from src.event import telegram_bot
 from src.strategies.dynamic_breakout_atx import DynamicBreakoutTrader
 from src.trader.binance_trader import BinanceTrader
-from src.event import telegram_bot
 
 # Load environment variables
 load_dotenv()

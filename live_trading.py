@@ -11,19 +11,18 @@ import json
 import logging
 import logging.handlers
 import os
-import sys
 from datetime import datetime
-from typing import Dict
 from pathlib import Path
+from typing import Dict
 
 from dotenv import load_dotenv
 from kafka import KafkaConsumer
 
-from src.strategies.dynamic_breakout_atx import DynamicBreakoutTrader, TradingSignal
-from src.trader.binance_trader import BinanceTrader
-from src.orchestrator.live_trading_orchestrator import LiveTradingOrchestrator
 from src.config.trading_config import load_config_from_env
 from src.event import telegram_bot
+from src.orchestrator.live_trading_orchestrator import LiveTradingOrchestrator
+from src.strategies.dynamic_breakout_atx import DynamicBreakoutTrader, TradingSignal
+from src.trader.binance_trader import BinanceTrader
 
 # Load environment variables
 load_dotenv()

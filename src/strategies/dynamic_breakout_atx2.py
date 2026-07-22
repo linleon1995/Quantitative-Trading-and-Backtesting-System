@@ -1,5 +1,7 @@
 from collections import deque
+
 import numpy as np
+
 
 # === 單幣種信號代理 ===
 class CoinSignalAgent:

@@ -12,10 +12,10 @@ import logging
 import os
 
 from src.client.binance_api import BinanceAPI
-from src.data_source.create_backtest_database import ArcticDBOperator
 from src.data_process.kline_storage import KlineStorage
-from src.data_source.gap_filler import GapFiller
+from src.data_source.create_backtest_database import ArcticDBOperator
 from src.data_source.data_collector import DataCollector
+from src.data_source.gap_filler import GapFiller
 
 logging.basicConfig(
     level=logging.INFO,

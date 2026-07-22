@@ -2,10 +2,10 @@
 Quick test script to validate the refactored architecture.
 Tests configuration loading, component initialization, and basic signal flow.
 """
-import sys
-from pathlib import Path
 import logging
+import sys
 from datetime import datetime
+from pathlib import Path
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -17,7 +17,7 @@ def test_config_loading():
     print("=" * 60)
     
     try:
-        from src.config.trading_config import load_config_from_env, LiveTradingConfig
+        from src.config.trading_config import load_config_from_env
         
         # Load from environment
         config = load_config_from_env()
@@ -49,7 +49,8 @@ def test_strategy_signals():
     
     try:
         from src.strategies.dynamic_breakout_atx import (
-            DynamicBreakoutTrader, TradingSignal, SignalType
+            DynamicBreakoutTrader,
+            TradingSignal,
         )
         
         signals_received = []
@@ -109,7 +110,10 @@ def test_strategy_no_premature_signals():
     print("=" * 60)
 
     try:
-        from src.strategies.dynamic_breakout_atx import DynamicBreakoutTrader, TradingSignal
+        from src.strategies.dynamic_breakout_atx import (
+            DynamicBreakoutTrader,
+            TradingSignal,
+        )
 
         premature_signals = []
 
@@ -184,8 +188,9 @@ def test_strategy_warmup_with_history():
     print("=" * 60)
 
     try:
-        import random
         import datetime
+        import random
+
         from src.strategies.dynamic_breakout_atx import DynamicBreakoutTrader
 
         random.seed(0)

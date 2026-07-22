@@ -1,9 +1,9 @@
-from typing import List, Any, Callable, Dict
+from typing import Any, Callable, Dict, List
 
-from src.strategies.base_strategy import Strategy
 # ProductState is forward-referenced in Strategy, but we might use it for type hints here
 # or in the TODO section, so importing it is fine.
 from src.data_process.product_state import ProductState
+from src.strategies.base_strategy import Strategy
 
 
 class MockStrategy(Strategy):

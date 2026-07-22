@@ -1,7 +1,9 @@
 import unittest
+
 import pytest
-from src.strategies.strategy_executor import StrategyExecutor
+
 from src.data_process.product_state import ProductState
+from src.strategies.strategy_executor import StrategyExecutor
 from tests.mocks import MockStrategy
 
 

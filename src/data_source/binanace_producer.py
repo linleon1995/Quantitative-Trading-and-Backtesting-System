@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import logging.handlers
-import time
 from pathlib import Path
 
 import requests

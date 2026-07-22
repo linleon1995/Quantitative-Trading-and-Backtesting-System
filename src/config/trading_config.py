@@ -2,7 +2,6 @@
 Trading configuration using Pydantic for validation and type safety.
 Supports configuration from environment variables and config files.
 """
-from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 
 

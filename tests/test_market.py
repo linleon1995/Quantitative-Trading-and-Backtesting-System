@@ -1,6 +1,7 @@
 import pytest
 
 from src.data_source.create_backtest_database import ArcticDBOperator
+
 # from src.market import Market
 
 

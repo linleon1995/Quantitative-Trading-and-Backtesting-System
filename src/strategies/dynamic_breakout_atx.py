@@ -1,7 +1,7 @@
 import logging
 from collections import deque
-from typing import Callable, Optional, Dict, Any
 from enum import Enum
+from typing import Any, Callable, Dict, Optional
 
 
 class SignalType(Enum):

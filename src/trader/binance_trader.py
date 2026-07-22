@@ -1,7 +1,8 @@
 from typing import Dict, List, Optional
 
-from src.trader.base_trader import BaseTrader
 from src.client.binance_api import BinanceAPI, BinanceAPIException
+from src.trader.base_trader import BaseTrader
+
 # TODO: Further integration with web3 and Metamask is needed.
 #       The current BinanceAPI class focuses on market data,
 #       and direct web3/Metamask integration with Binance (a CEX)

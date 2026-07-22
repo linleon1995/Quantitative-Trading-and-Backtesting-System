@@ -18,7 +18,7 @@ import os
 import sys
 from typing import Any, Dict, Optional
 
-from src.trader.binance_trader import BinanceTrader, BinanceAPIException
+from src.trader.binance_trader import BinanceAPIException, BinanceTrader
 
 
 def build_parser() -> argparse.ArgumentParser:

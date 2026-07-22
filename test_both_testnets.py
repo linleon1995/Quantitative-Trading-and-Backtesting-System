@@ -2,7 +2,9 @@
 Test both Spot and Futures testnet APIs with separate credentials.
 """
 import os
+
 from dotenv import load_dotenv
+
 from src.trader.binance_trader import BinanceTrader
 
 # Load environment variables

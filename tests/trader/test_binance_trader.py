@@ -1,7 +1,7 @@
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
-from src.trader.binance_trader import BinanceTrader, BinanceAPIException
+from src.trader.binance_trader import BinanceAPIException, BinanceTrader
 
 
 class TestBinanceTrader(TestCase):

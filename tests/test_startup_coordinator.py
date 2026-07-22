@@ -1,7 +1,7 @@
 # tests/test_startup_coordinator.py
 from unittest.mock import MagicMock, patch
-import pytest
-from src.orchestrator.startup_coordinator import StartupCoordinator, AlignedState
+
+from src.orchestrator.startup_coordinator import StartupCoordinator
 
 
 def _mock_api(balance=1000.0, positions=None):
@@ -62,5 +62,6 @@ def test_balance_mismatch_uses_exchange_balance():
 
 # helper
 def unittest_mock_open(data):
-    import unittest.mock as m, json, io
+    import json
+    import unittest.mock as m
     return m.mock_open(read_data=json.dumps(data))

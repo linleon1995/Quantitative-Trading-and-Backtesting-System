@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import List, Any
+from typing import Any, List
+
 from statemachine import State, StateMachine
 
 from src.data_process.data_structure import GeneralTickData

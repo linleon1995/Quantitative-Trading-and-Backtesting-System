@@ -2,6 +2,15 @@
 
 ![alt text](asset/image.png)
 
+## 📚 Documentation
+
+- [📖 文件導覽](docs/README.md) — 文件地圖與閱讀指引（從這裡開始）
+- [執行摘要](docs/00-executive-summary.md) — 關鍵發現、回測框架設計要點、建議行動順序
+- [專案總覽](docs/01-project-overview.md) — 系統組成、模組地圖、資料流、測試現況
+- [現有問題與解決方案](docs/02-issues-and-solutions.md) — 問題優先級總表與處理順序
+- [回測框架設計與服務拆分](docs/03-backtest-framework-and-service-split.md) — 完整回測框架規劃、服務邊界建議
+
+
 ## 🚀 New: Live Trading on Binance Testnet
 
 **实盘交易功能已完成！** 现在支持在Binance测试网上进行自动交易。

@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Data, results, and logs
+data/
+results/
+downloads/
+logs/
+arctic_database/
+
+# Test and coverage
+tests/
+
+# Editor directories and files
+.vscode/

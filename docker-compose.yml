@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  kafka:
+    image: bitnami/kafka:latest
+    container_name: kafka
+    ports:
+      - "9092:9092" # 用於 Kafka client 連線
+      - "9093:9093" # 用於 Controller 之間的 Raft 通訊
+      - "29092:29092" # 用於 Docker host 連線
+    environment:
+      # KRaft 模式基本設定
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_NODE_ID=1
+
+      # Controller 選舉相關
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+
+      # 監聽器設定
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,PLAINTEXT_HOST://:29092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://127.0.0.1:29092 # use 127.0.0.1 instead of localhost for localhost connections
+
+      # 安全協定映射
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      # - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+
+      # 開發環境允許 plaintext
+      - ALLOW_PLAINTEXT_LISTENER=yes
+
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+    volumes:
+      - kafka_data:/bitnami/kafka
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+      - KAFKA_CLUSTERS_0_METRICS_PORT=9997
+    depends_on:
+      - kafka
+
+  producer:
+    build:
+      dockerfile: docker/Dockerfile
+    container_name: binance_producer
+    volumes:
+      - ./logs:/app/logs
+    command: python src/data_source/binanace_producer.py
+    restart: unless-stopped
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+    depends_on:
+      - kafka
+    stdin_open: true
+    tty: true
+volumes:
+  kafka_data:

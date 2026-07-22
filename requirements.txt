@@ -1,0 +1,16 @@
+numpy
+python-telegram-bot
+kafka-python
+websockets
+arcticdb
+pandas
+pytest
+matplotlib
+pprintpp
+requests
+scipy
+tqdm
+ipython
+python-statemachine
+cryptography
+python-dotenv

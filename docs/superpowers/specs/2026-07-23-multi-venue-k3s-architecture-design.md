@@ -73,15 +73,15 @@ flowchart LR
 
   K[(Kafka)]
   A[(ArcticDB 行情)]
-  CP[[checkpoint: last_written_time]]
+  CP[["checkpoint: last_written_time"]]
 
   subgraph REC[data-reconciliation 啟動時]
     R[gap-filler init/Job]
   end
 
   subgraph STR[strategy 策略×市場]
-    S1[momentum@binance]
-    S2[momentum@uniswap]
+    S1["momentum: binance"]
+    S2["momentum: uniswap"]
   end
 
   subgraph OMS[OMS 每 venue]

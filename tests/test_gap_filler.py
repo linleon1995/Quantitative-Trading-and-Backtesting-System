@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 
-from src.data_source.gap_filler import GapFiller
+from src.data_source.gap_filler import FillResult, GapFiller
 
 
 def _raw_kline_row(open_time_ms: int) -> list:
@@ -95,3 +95,56 @@ def test_no_data_does_full_backfill():
     filler.fill("BTCUSDT", "1m")
     api.get_futures_klines.assert_called()
     storage.append.assert_called()
+
+
+# ── FillResult return value ──────────────────────────────────────────────────
+
+def test_fill_result_when_skipped():
+    """No gap → FillResult(skipped=True, rows_written=0), no API call."""
+    api = MagicMock()
+    storage = MagicMock()
+    last_ms = int((pd.Timestamp.utcnow() - pd.Timedelta(seconds=30)).value // 1_000_000)
+    storage.get_last_timestamp.return_value = last_ms
+
+    result = GapFiller(api=api, storage=storage, gap_threshold_intervals=2).fill("BTCUSDT", "1m")
+
+    assert isinstance(result, FillResult)
+    assert result.skipped is True
+    assert result.fresh is False
+    assert result.rows_written == 0
+    assert result.last_ms == last_ms
+
+
+def test_fill_result_when_filled():
+    """A gap after existing data → FillResult(filled, rows_written=N, fresh=False)."""
+    api = MagicMock()
+    storage = MagicMock()
+    ten_min_ago_ms = int((pd.Timestamp.utcnow() - pd.Timedelta(minutes=10)).value // 1_000_000)
+    storage.get_last_timestamp.return_value = ten_min_ago_ms
+    api.get_futures_klines.return_value = [
+        _raw_kline_row(ten_min_ago_ms + i * 60_000) for i in range(1, 11)
+    ]
+
+    result = GapFiller(api=api, storage=storage, gap_threshold_intervals=2).fill("BTCUSDT", "1m")
+
+    assert result.skipped is False
+    assert result.fresh is False
+    assert result.rows_written == 10
+    assert result.last_ms == ten_min_ago_ms
+
+
+def test_fill_result_when_fresh():
+    """No prior data → FillResult(fresh=True, last_ms=None, rows_written=N)."""
+    api = MagicMock()
+    storage = MagicMock()
+    storage.get_last_timestamp.return_value = None
+    api.get_futures_klines.return_value = [
+        _raw_kline_row(1_700_000_000_000 + i * 60_000) for i in range(10)
+    ]
+
+    result = GapFiller(api=api, storage=storage, default_lookback_hours=1).fill("BTCUSDT", "1m")
+
+    assert result.fresh is True
+    assert result.skipped is False
+    assert result.last_ms is None
+    assert result.rows_written == 10

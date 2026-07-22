@@ -2,6 +2,11 @@
 from unittest.mock import MagicMock
 
 from src.data_source.data_collector import DataCollector
+from src.data_source.data_reconciliation import (
+    ReconcileReport,
+    ReconcileResult,
+    ReconcileStatus,
+)
 
 
 def _make_kafka_msg(symbol: str, interval: str, open_time: int) -> MagicMock:
@@ -21,28 +26,39 @@ def _make_kafka_msg(symbol: str, interval: str, open_time: int) -> MagicMock:
     return msg
 
 
-def test_gap_fill_runs_for_each_symbol_on_startup():
-    gap_filler = MagicMock()
+def _ok_report(symbols: list[str]) -> ReconcileReport:
+    return ReconcileReport([
+        ReconcileResult(s, "1m", None, 0, 0, ReconcileStatus.UP_TO_DATE)
+        for s in symbols
+    ])
+
+
+def test_startup_fill_delegates_to_reconciliation():
+    reconciliation = MagicMock()
+    reconciliation.reconcile_all.return_value = _ok_report(["BTCUSDT", "ETHUSDT"])
     storage = MagicMock()
     collector = DataCollector(
-        gap_filler=gap_filler,
+        reconciliation=reconciliation,
         storage=storage,
         symbols=["BTCUSDT", "ETHUSDT"],
         interval="1m",
         kafka_topic="binance_kline",
         kafka_servers=["kafka:9092"],
     )
-    collector.startup_fill()
-    assert gap_filler.fill.call_count == 2
-    gap_filler.fill.assert_any_call("BTCUSDT", "1m")
-    gap_filler.fill.assert_any_call("ETHUSDT", "1m")
+    report = collector.startup_fill()
+
+    reconciliation.reconcile_all.assert_called_once()
+    called_symbols, called_interval = reconciliation.reconcile_all.call_args[0]
+    assert set(called_symbols) == {"BTCUSDT", "ETHUSDT"}
+    assert called_interval == "1m"
+    assert report.ok is True
 
 
 def test_process_message_appends_to_storage():
-    gap_filler = MagicMock()
+    reconciliation = MagicMock()
     storage = MagicMock()
     collector = DataCollector(
-        gap_filler=gap_filler,
+        reconciliation=reconciliation,
         storage=storage,
         symbols=["BTCUSDT"],
         interval="1m",
@@ -59,10 +75,10 @@ def test_process_message_appends_to_storage():
 
 def test_process_message_ignores_unknown_symbol():
     """Messages for symbols not in the configured list are dropped silently."""
-    gap_filler = MagicMock()
+    reconciliation = MagicMock()
     storage = MagicMock()
     collector = DataCollector(
-        gap_filler=gap_filler,
+        reconciliation=reconciliation,
         storage=storage,
         symbols=["BTCUSDT"],
         interval="1m",
